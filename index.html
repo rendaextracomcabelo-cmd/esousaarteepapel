@@ -835,7 +835,8 @@ var ALI={
   canal:['canal','plataforma','marketplace','channel'],
   settled:['order settled date','data de liquidacao','data de repasse'],
   status:['order status','status do pedido','status'],
-  margem:['net order margin','margem liquida do pedido']
+  margem:['net order margin','margem liquida do pedido'],
+  amostra:['sample order type','tipo de pedido de amostra']
 };
 /* relatório "Profit & Loss" do TikTok Shop: várias colunas de taxa e de frete que somam o custo do pedido */
 var TAXAS_MULTI=['platform commission fee','commission paid to creators','commission paid to affiliate partners','sfp service fee','shop ads commission paid to creators','shop ads commission paid to affiliate partners','gmv max ad fee','fee per item sold','icms difal','icms penalty'];
@@ -881,7 +882,7 @@ function mapVendas(rows){
     var unit=c.unit>=0?parseNum(r[c.unit]):parseNum(r[c.total])/q;
     if(!(unit>0)){
       var custo=c.margem>=0?parseNum(r[c.margem]):0;
-      if(custo<0)amostras.push({data:d,custo:-custo});else semValor++;
+      if(custo<0)amostras.push({data:d,custo:-custo,tipo:c.amostra>=0?(String(r[c.amostra]).trim()?'amostra':'devolucao'):'outro'});else semValor++;
       continue;
     }
     var nome=c.item>=0?(c.sku>=0?[shortName(r[c.item]),String(r[c.sku]).trim()].filter(Boolean).join(' · '):String(r[c.item]).trim()):(c.sku>=0?String(r[c.sku]).trim():'Venda importada');
@@ -911,15 +912,20 @@ function importVendasSheet(m){
   if(!its.length){toast('Não encontrei vendas nessa planilha.');return}
   var ds=its.map(function(x){return x.data}).sort(),tot=sum(its,function(x){return x.qtd*x.unit});
   var liq=sum(its,function(x){return x.qtd*x.unit-(x.taxa||0)-(x.frete||0)});
-  var colNames={data:'Data',item:'Produto',sku:'Variação',qtd:'Quantidade',unit:'Preço unitário',total:'Valor',taxa:'Taxas',frete:'Frete',pedido:'Pedido',canal:'Canal',settled:'Repasse',status:'Status',margem:'Resultado'};
+  var colNames={data:'Data',item:'Produto',sku:'Variação',qtd:'Quantidade',unit:'Preço unitário',total:'Valor',taxa:'Taxas',frete:'Frete',pedido:'Pedido',canal:'Canal',settled:'Repasse',status:'Status',margem:'Resultado',amostra:'Amostra'};
   var usadas=Object.keys(m.names).map(function(k){return colNames[k]+' ← '+(/^soma/.test(m.names[k])?m.names[k]:'“'+esc(m.names[k])+'”')}).join(' · ');
   var am=m.amostras||[],amTot=sum(am,function(x){return x.custo});
+  var amA=am.filter(function(x){return x.tipo==='amostra'}),amD=am.filter(function(x){return x.tipo==='devolucao'}),amO=am.filter(function(x){return x.tipo==='outro'});
+  var amTxt=[];
+  if(amA.length)amTxt.push(amA.length+(amA.length===1?' amostra grátis':' amostras grátis')+' (custo de '+money(sum(amA,function(x){return x.custo}))+')');
+  if(amD.length)amTxt.push(amD.length+(amD.length===1?' devolução':' devoluções')+' (custo de '+money(sum(amD,function(x){return x.custo}))+')');
+  if(amO.length)amTxt.push(amO.length+' pedidos sem venda e com custo ('+money(sum(amO,function(x){return x.custo}))+')');
   var body='<div class="preview"><div><span>Vendas encontradas</span><b>'+its.length+'</b></div><div><span>Período</span><b>'+fmtDay(ds[0])+'/'+ds[0].slice(0,4)+' a '+fmtDay(ds[ds.length-1])+'/'+ds[ds.length-1].slice(0,4)+'</b></div><div><span>Vendido</span><b class="num">'+money(tot)+'</b></div><div><span>Você recebe, depois das taxas</span><b class="num">'+money(liq)+'</b></div></div>'+
     '<p class="help" style="margin:0">Colunas usadas: '+usadas+'</p>'+
-    ((m.cancel||am.length||m.semValor)?'<p class="help" style="margin:0">Ignorei '+(m.cancel?m.cancel+' pedidos cancelados':'')+((m.cancel&&(am.length||m.semValor))?', ':'')+(am.length?am.length+' amostras grátis ou devoluções (custo de '+money(amTot)+')':'')+(m.semValor&&am.length?', ':'')+(m.semValor?m.semValor+' linhas sem valor':'')+'.</p>':'')+
+    ((m.cancel||am.length||m.semValor)?'<p class="help" style="margin:0">Ignorei '+(m.cancel?m.cancel+' pedidos cancelados':'')+((m.cancel&&(am.length||m.semValor))?', ':'')+(amTxt.length?amTxt.join(', '):'')+(m.semValor&&am.length?', ':'')+(m.semValor?m.semValor+' linhas sem valor':'')+'.</p>':'')+
     '<label>De qual canal são estas vendas?<select name="canal">'+opts(S.config.canais.map(function(c){return [c.id,c.nome]}),S.config.canais[0].id)+'</select></label>'+
     '<label class="check"><input type="checkbox" name="rec" checked> Já recebi o dinheiro (só vale se a planilha não informar o repasse)</label>'+
-    (am.length?'<label class="check"><input type="checkbox" name="amo" checked> Lançar o custo das amostras grátis e devoluções como despesa</label>':'')+
+    (am.length?'<label class="check"><input type="checkbox" name="amo" checked> Lançar esses custos como despesas (uma por tipo, em cada mês)</label>':'')+
     '<label class="check"><input type="checkbox" name="dup" checked> Pular vendas que já estão no painel</label>'+
     '<p class="help" style="margin:0">Se faltar a taxa na planilha, uso a taxa em % do canal. Produtos com o mesmo nome do cadastro ficam ligados ao estoque, mas só mexem na quantidade se forem posteriores à data de contagem.</p>';
   openSheet('Importar vendas',body,{
@@ -938,18 +944,24 @@ function importVendasSheet(m){
       });
       var nd=0;
       if(f.amo&&f.amo.checked){
-        var byM={};am.forEach(function(x){var k=mk(x.data),o=byM[k]||(byM[k]={v:0,d:x.data});o.v+=x.custo;if(x.data>o.d)o.d=x.data});
+        var byM={},nomes={amostra:'Amostras grátis',devolucao:'Devoluções',outro:'Amostras grátis e devoluções'};
+        am.forEach(function(x){var k=mk(x.data)+'|'+x.tipo,o=byM[k]||(byM[k]={v:0,d:x.data,t:x.tipo,m:mk(x.data)});o.v+=x.custo;if(x.data>o.d)o.d=x.data});
         var cat=S.config.categorias.indexOf('Fretes e passagem')>=0?'Fretes e passagem':S.config.categorias[0];
         Object.keys(byM).forEach(function(k){
-          var desc='Amostras grátis e devoluções ('+monthLabel(k)+')';
+          var o=byM[k],desc=nomes[o.t]+' ('+monthLabel(o.m)+')',velha='Amostras grátis e devoluções ('+monthLabel(o.m)+')';
+          if(o.t!=='outro'){
+            var antes=S.despesas.length;
+            S.despesas=S.despesas.filter(function(d){return !(d.desc===velha&&d.obs==='importada')});
+            if(S.despesas.length!==antes)touch('despesas',o.m);
+          }
           if(S.despesas.some(function(d){return d.desc===desc}))return;
-          S.despesas.push({id:uid(),data:byM[k].d,desc:desc,cat:cat,valor:Math.round(byM[k].v*100)/100,pago:true,canal:'tiktok',obs:'importada'});
-          touch('despesas',k);nd++;
+          S.despesas.push({id:uid(),data:o.d,desc:desc,cat:cat,valor:Math.round(o.v*100)/100,pago:true,canal:'tiktok',obs:'importada'});
+          touch('despesas',o.m);nd++;
         });
       }
       Object.keys(months).forEach(function(k){touch('vendas',k)});
       if(last){V.mes=mk(last);V.tab='hist'}
-      commit();toast(n+' vendas importadas'+(skipped?(' · '+skipped+' já existiam'):'')+(nd?(' · '+nd+(nd===1?' despesa de amostras e devoluções':' despesas de amostras e devoluções')):'')+'.');return true;
+      commit();toast(n+' vendas importadas'+(skipped?(' · '+skipped+' já existiam'):'')+(nd?(' · '+nd+(nd===1?' despesa lançada':' despesas lançadas')):'')+'.');return true;
     }
   });
 }
