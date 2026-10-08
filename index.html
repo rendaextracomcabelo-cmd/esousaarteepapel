@@ -459,11 +459,11 @@ function rResumo(){
   var topMap={};st.vs.forEach(function(v){var k=v.prod||('n:'+v.nome);var o=topMap[k]||(topMap[k]={nome:v.nome,q:0,l:0});o.q+=v.qtd;o.l+=lucroV(v)});
   var top=Object.keys(topMap).map(function(k){return topMap[k]}).sort(function(a,b){return b.q-a.q}).slice(0,5);
   var alerts=S.produtos.map(function(p){return {p:p,s:stockState(p)}}).filter(function(x){return x.s.k==='zero'||x.s.k==='low'}).sort(function(a,b){return a.s.q-b.s.q}).slice(0,6);
-  var hint=S.config.hintTaxa&&S.config.canais.some(function(c){return c.id!=='local'&&!c.taxa});
+  var hint=S.config.hintTaxa&&S.config.canais.some(function(c){return c.id!=='local'&&!c.taxa&&!c.taxaFixa});
   var pst=stats(shiftMonth(V.mes,-1)),cmp='';
   if(pst.fat>0){var pc=Math.round((st.fat-pst.fat)/pst.fat*100);cmp=' · '+(pc>=0?'▲ ':'▼ ')+Math.abs(pc)+'% vs mês anterior'}
   var h='<div class="toolbar">'+monthNav()+'<button class="btn" type="button" data-act="newVenda">+ Nova venda</button></div>';
-  if(hint)h+='<div class="note"><p>A taxa de cada plataforma está em 0%. Preencha em Configurações para o lucro sair certo.</p><span class="btnrow"><button class="btn ghost sm" type="button" data-act="tab" data-tab="config">Abrir configurações</button><button class="link" type="button" data-act="hideHint">Dispensar</button></span></div>';
+  if(hint)h+='<div class="note"><p>A taxa de cada plataforma está zerada. Preencha em Configurações para o lucro sair certo.</p><span class="btnrow"><button class="btn ghost sm" type="button" data-act="tab" data-tab="config">Abrir configurações</button><button class="link" type="button" data-act="hideHint">Dispensar</button></span></div>';
   h+='<section class="tiles">'+
     '<div class="tile"><span>Faturamento</span><b>'+money(st.fat)+'</b><small>'+st.nv+(st.nv===1?' venda':' vendas')+cmp+'</small></div>'+
     '<div class="tile hero"><span>Lucro líquido</span><b class="'+(st.lucro<0?'neg':'pos')+'">'+signed(st.lucro)+'</b><small>depois de taxas, fretes e despesas pagas</small></div>'+
@@ -611,8 +611,8 @@ function rHist(){
 function rConfig(){
   var used={};S.vendas.forEach(function(v){used[v.canal]=1});S.despesas.forEach(function(d){if(d.canal)used[d.canal]=1});
   var h='<div class="toolbar"><h1 style="font-family:var(--display);font-size:2.1rem;line-height:1;margin:0">Configurações</h1></div>';
-  h+='<section class="card"><h2>Canais de venda e taxas</h2><p class="help">A taxa em % é aplicada sozinha ao lançar uma venda, e você ainda pode ajustar o valor exato do extrato. Em “Venda local”, use a taxa da maquininha, se houver.</p>'+
-    S.config.canais.map(function(c){return '<div class="crow"><i class="sw" style="background:var(--s'+c.cor+')"></i><input type="text" data-chg="canalNome" data-id="'+esc(c.id)+'" value="'+esc(c.nome)+'" aria-label="Nome do canal"><label class="pct"><input type="text" inputmode="decimal" data-chg="canalTaxa" data-id="'+esc(c.id)+'" value="'+fmtIn(c.taxa).replace(',00','')+'" aria-label="Taxa de '+esc(c.nome)+' em porcentagem"> %</label><button class="btn ghost sm" type="button" data-act="delCanal" data-id="'+esc(c.id)+'"'+(used[c.id]?' disabled title="Já tem lançamentos neste canal"':'')+'>Remover</button></div>'}).join('')+
+  h+='<section class="card"><h2>Canais de venda e taxas</h2><p class="help">A taxa é calculada sozinha ao lançar uma venda: a porcentagem sobre o valor vendido mais o valor fixo por item (a plataforma cobra os dois). Você ainda pode ajustar o valor exato do extrato. Em “Venda local”, use a taxa da maquininha, se houver.</p>'+
+    S.config.canais.map(function(c){return '<div class="crow"><i class="sw" style="background:var(--s'+c.cor+')"></i><input type="text" data-chg="canalNome" data-id="'+esc(c.id)+'" value="'+esc(c.nome)+'" aria-label="Nome do canal"><label class="pct"><input type="text" inputmode="decimal" data-chg="canalTaxa" data-id="'+esc(c.id)+'" value="'+fmtIn(c.taxa).replace(',00','')+'" aria-label="Taxa de '+esc(c.nome)+' em porcentagem"> %</label><label class="pct">+ R$<input type="text" inputmode="decimal" data-chg="canalFixa" data-id="'+esc(c.id)+'" value="'+fmtIn(c.taxaFixa||0)+'" aria-label="Taxa fixa por item de '+esc(c.nome)+' em reais"></label><button class="btn ghost sm" type="button" data-act="delCanal" data-id="'+esc(c.id)+'"'+(used[c.id]?' disabled title="Já tem lançamentos neste canal"':'')+'>Remover</button></div>'}).join('')+
     '<div style="margin-top:10px"><button class="btn ghost sm" type="button" data-act="addCanal">+ Adicionar canal</button></div></section>';
   h+='<section class="card"><h2>Categorias de despesa</h2><div class="cats">'+S.config.categorias.map(function(c,i){return '<span class="cat">'+esc(c)+'<button type="button" data-act="delCat" data-i="'+i+'" aria-label="Remover '+esc(c)+'">×</button></span>'}).join('')+'</div><form class="inline-form" data-form="cat"><input type="text" id="newCat" placeholder="Nova categoria" aria-label="Nova categoria" autocomplete="off"><button class="btn sm" type="submit">Adicionar</button></form></section>';
   h+='<section class="card"><h2>Importar e exportar</h2><p class="help">Os dados ficam salvos neste painel. Faça um backup de vez em quando e não compartilhe o link com quem não deve ver seu financeiro.</p><div class="btnrow">'+
@@ -667,7 +667,7 @@ function vendaSheet(id){
       function recalc(){
         var q=Math.max(1,Math.floor(parseNum(f.qtd.value))||1),unit=parseNum(f.unit.value),b=q*unit;
         var canal=canalInfo(f.canal.value);
-        if(!manual)f.taxa.value=fmtIn(b*(canal.taxa||0)/100);
+        if(!manual)f.taxa.value=fmtIn(b*(canal.taxa||0)/100+q*(canal.taxaFixa||0));
         var taxa=parseNum(f.taxa.value),frete=parseNum(f.frete.value),p=prodById(f.prod.value);
         var custo=p?((v&&v.prod===p.id)?v.custoUn:p.custo):0,liq=b-taxa-frete,luc=liq-q*custo;
         var warn='';
@@ -938,7 +938,7 @@ function importVendasSheet(m){
         var canal=f.canal.value;
         if(x.canalTxt){S.config.canais.forEach(function(c){if(norm(c.nome)===x.canalTxt||c.id===x.canalTxt||x.canalTxt.indexOf(norm(c.nome))>=0)canal=c.id})}
         var p=byName[norm(x.nome)]||null,b=x.qtd*x.unit,ci=canalInfo(canal);
-        var v={id:uid(),data:x.data,canal:canal,prod:p?p.id:'',nome:x.nome||'Venda importada',qtd:x.qtd,unit:x.unit,taxa:x.taxa!==null?x.taxa:Math.round(b*(ci.taxa||0))/100,frete:x.frete||0,recebido:x.rec!==null?x.rec:f.rec.checked,obs:'importada',custoUn:p?p.custo:0,pedido:x.pedido};
+        var v={id:uid(),data:x.data,canal:canal,prod:p?p.id:'',nome:x.nome||'Venda importada',qtd:x.qtd,unit:x.unit,taxa:x.taxa!==null?x.taxa:Math.round(b*(ci.taxa||0)+x.qtd*(ci.taxaFixa||0)*100)/100,frete:x.frete||0,recebido:x.rec!==null?x.rec:f.rec.checked,obs:'importada',custoUn:p?p.custo:0,pedido:x.pedido};
         if(f.dup.checked){var k=vendaKey(v),old=seen[k];if(old){skipped++;var ch=false;if(x.rec!==null&&old.recebido!==x.rec){old.recebido=x.rec;ch=true}if(x.taxa!==null&&Math.abs((old.taxa||0)-x.taxa)>0.004){old.taxa=x.taxa;ch=true}if(x.frete!==null&&x.frete!==undefined&&Math.abs((old.frete||0)-x.frete)>0.004){old.frete=x.frete;ch=true}if(ch){upd++;months[mk(old.data)]=1}return}seen[k]=v}
         S.vendas.push(v);n++;months[mk(v.data)]=1;if(v.data>last)last=v.data;
       });
@@ -1037,6 +1037,7 @@ document.addEventListener('change',function(e){
   var c=S.config.canais.filter(function(x){return x.id===t.dataset.id})[0];if(!c)return;
   if(k==='canalNome'){c.nome=t.value.trim()||c.nome}
   if(k==='canalTaxa'){c.taxa=Math.max(0,Math.min(100,parseNum(t.value)));t.value=fmtIn(c.taxa).replace(',00','')}
+  if(k==='canalFixa'){c.taxaFixa=Math.max(0,parseNum(t.value));t.value=fmtIn(c.taxaFixa)}
   touch('main');persist();
 });
 document.addEventListener('input',function(e){
