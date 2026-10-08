@@ -284,7 +284,10 @@ var IC={
 function ic(n){return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+IC[n]+'"/></svg>'}
 
 /* ---------- estado ---------- */
-var LS='esousa_painel_v1';
+var DEMO=false;            /* o index.html do repositório é gerado com DEMO=true (versão de teste) */
+var WA_NUM='';             /* WhatsApp para sugestões, só números com DDI, ex.: 5521999999999 */
+var LS=DEMO?'painel_demo_v1':'esousa_painel_v1';
+function waLink(m){return 'https://wa.me/'+WA_NUM+'?text='+encodeURIComponent(m)}
 var CATS=['Taxas cartão','Fretes e passagem','Insumos','Matérias para loja','Extras','Micro','Serviços terceirizado','Prolabore','Nenhum'];
 function defaultConfig(){
   return {canais:[
@@ -294,7 +297,49 @@ function defaultConfig(){
     {id:'local',nome:'Venda local',taxa:0,cor:3}
   ],categorias:CATS.slice(),hintTaxa:true};
 }
+function seedDemo(){
+  var cfg=defaultConfig();cfg.hintTaxa=false;
+  cfg.canais[0].taxa=16;cfg.canais[0].taxaFixa=4;cfg.canais[1].taxa=20;cfg.canais[1].taxaFixa=4;cfg.canais[2].taxa=10;
+  var P=[
+    {id:'dx1',nome:'Caderno de colorir Animais',sku:'CAD-ANI',custo:6.5,preco:14.9,controla:true,inicial:140,min:15,ex:true},
+    {id:'dx2',nome:'Kit 50 folhinhas de colorir',sku:'KIT-50',custo:4.2,preco:12.9,controla:true,inicial:150,min:20,ex:true},
+    {id:'dx3',nome:'Jogo da memória educativo',sku:'JOG-MEM',custo:9,preco:24.9,controla:true,inicial:27,min:10,ex:true},
+    {id:'dx4',nome:'Kit Bíblico para colorir 100 folhas',sku:'BIB-100',custo:8.8,preco:19.9,controla:true,inicial:90,min:15,ex:true},
+    {id:'dx5',nome:'Livrinho Mundo Fantástico',sku:'LIV-MF',custo:5.1,preco:16.9,controla:true,inicial:48,min:12,ex:true},
+    {id:'dx6',nome:'PDF Colorir Dinossauros (arquivo digital)',sku:'PDF-DINO',custo:0,preco:18.9,controla:false,inicial:0,min:0,ex:true}
+  ];
+  var sd=11;function rnd(){sd=(sd*1103515245+12345)&0x7fffffff;return sd/0x7fffffff}
+  var r2=function(x){return Math.round(x*100)/100};
+  var vendas=[],origs=['Vídeo','Cartão de produto','Cartão de produto','Live','Vídeo'],canais=['tiktok','tiktok','tiktok','tiktok','shopee','etsy','local'];
+  for(var d=104;d>=0;d--){
+    var mf=d<35?1:d<65?0.55:d<95?0.85:0.4,n=Math.round(rnd()*2.6*mf);
+    for(var i=0;i<n;i++){
+      var canal=canais[Math.floor(rnd()*canais.length)],pr=canal==='etsy'?P[5]:P[Math.floor(rnd()*5)],q=1+Math.floor(rnd()*3);
+      if(!pr.controla)q=1;
+      var b=q*pr.preco,v={id:uid(),data:dAgo(d),canal:canal,prod:pr.id,nome:pr.nome,qtd:q,unit:pr.preco,frete:0,obs:'',custoUn:pr.custo,ex:true};
+      if(canal==='tiktok'){
+        var o=origs[Math.floor(rnd()*origs.length)],tx={serv:r2(b*.06),fixa:4*q};
+        if(rnd()<.55)tx.com=r2(b*.1);
+        if(o==='Vídeo'&&rnd()<.5)tx.afil=r2(b*.085);
+        v.origem=o;v.tx=tx;v.taxa=r2(sum(Object.keys(tx),function(k){return tx[k]}));
+      }else if(canal==='shopee'){v.taxa=r2(b*.2+4*q);v.frete=rnd()<.5?5:0}
+      else if(canal==='etsy'){v.taxa=r2(b*.1)}
+      else v.taxa=0;
+      v.recebido=canal==='local'||d>9;
+      if(!v.recebido)v.repasseEst=dAgo(d-7);
+      vendas.push(v);
+    }
+  }
+  var despesas=[];
+  for(var m=0;m<4;m++){
+    despesas.push({id:uid(),data:dAgo(m*30+3),desc:'Papel A4 e tinta',cat:'Insumos',valor:r2(70+rnd()*60),pago:true,canal:'',ex:true});
+    despesas.push({id:uid(),data:dAgo(m*30+8),desc:'Embalagens',cat:'Matérias para loja',valor:r2(35+rnd()*40),pago:m>0,canal:'',ex:true});
+    despesas.push({id:uid(),data:dAgo(m*30+12),desc:'Frete de material',cat:'Fretes e passagem',valor:r2(15+rnd()*25),pago:true,canal:'',ex:true});
+  }
+  return {config:cfg,produtos:P,movs:[],vendas:vendas,despesas:despesas};
+}
 function seed(){
+  if(DEMO)return seedDemo();
   var cfg=defaultConfig();
   var P=[
     {id:'px1',nome:'Caderno de colorir Animais',sku:'CAD-ANI',custo:6.5,preco:14.9,controla:true,inicial:40,min:10,ex:true},
@@ -329,7 +374,7 @@ function normalize(s){
 var S;
 try{var raw=localStorage.getItem(LS);S=raw?normalize(JSON.parse(raw)):null}catch(e){S=null}
 if(!S||(!S.produtos.length&&!S.vendas.length&&!S.despesas.length&&!S.movs.length))S=seed();
-var V={tab:'resumo',mes:curMonth(),canal:'all',despF:'all',soBaixo:false,busca:''};
+var V={tab:'hist',mes:curMonth(),canal:'all',despF:'all',soBaixo:false,busca:''};
 
 /* ---------- cálculos ---------- */
 function canalInfo(id){for(var i=0;i<S.config.canais.length;i++)if(S.config.canais[i].id===id)return S.config.canais[i];return {id:id,nome:'Outro',taxa:0,cor:7}}
@@ -366,7 +411,7 @@ function origemNorm(v){
 }
 function origemRows(vs){
   var m={};vs.forEach(function(v){var k=v.origem||'Sem origem';var o=m[k]||(m[k]={nome:k,n:0,q:0,f:0,l:0});o.n++;o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
-  return Object.keys(m).map(function(k){return m[k]}).sort(function(a,b){return b.f-a.f});
+  return Object.keys(m).map(function(k){return m[k]}).sort(function(a,b){if(a.nome==='Sem origem')return 1;if(b.nome==='Sem origem')return -1;return b.f-a.f});
 }
 function taxaRows(vs){
   var t={};TXG.forEach(function(g){t[g[0]]=0});
@@ -390,7 +435,7 @@ var db=null,dbMode='loading',dirty={},flushing=false,timer=null;
 function setStatus(s){
   var el=$('#status');if(!el)return;
   el.dataset.s=s;
-  el.textContent={saved:'Salvo',saving:'Salvando…',local:'Só neste aparelho',err:'Erro ao salvar. Tocar para tentar de novo',loading:'Carregando…'}[s]||s;
+  el.textContent={saved:'Salvo',saving:'Salvando…',local:DEMO?'Teste · só neste aparelho':'Só neste aparelho',err:'Erro ao salvar. Tocar para tentar de novo',loading:'Carregando…'}[s]||s;
 }
 function touch(kind,key){dirty[kind==='main'?'main':kind+'/'+key]=1}
 function touchAll(){
@@ -459,6 +504,7 @@ function barRows(items,max,showShare){
   }).join('')+'</div>';
 }
 function exBanner(){
+  if(DEMO)return '';
   var has=S.produtos.some(function(x){return x.ex})||S.vendas.some(function(x){return x.ex})||S.despesas.some(function(x){return x.ex});
   if(!has)return '';
   return '<div class="note"><p><b>Dados de exemplo.</b> Os produtos, vendas e despesas abaixo são só para você ver como funciona. As taxas dos exemplos são inventadas.</p><button class="btn ghost sm" type="button" data-act="clearEx">Apagar exemplos e começar</button></div>';
@@ -471,21 +517,38 @@ function arm(b,fn){
   b.dataset.t=setTimeout(function(){delete b.dataset.armed;b.textContent=b.dataset.orig;b.classList.remove('armed')},3500);
 }
 
+/* ---------- versão de teste ---------- */
+function demoBar(){
+  return '<div class="note"><p><b>Versão de teste.</b> Os números são de exemplo e ficam só neste aparelho. Mexa à vontade: lance uma venda, mude o estoque, importe a planilha da sua loja. Sentiu falta de alguma coisa? Me conta.</p><span class="btnrow"><button class="btn sm" type="button" data-act="sugerir">Sugerir mudança</button><button class="btn ghost sm" type="button" data-act="tab" data-tab="config">Importar minha planilha</button><button class="btn ghost sm" type="button" data-act="quero">Quero para a minha loja</button></span></div>';
+}
+function sugSheet(){
+  openSheet('Sugerir uma mudança','<label>O que você sentiu falta ou mudaria?<textarea name="msg" rows="5" placeholder="Ex.: queria ver o lucro de cada produto, ou separar por kit..."></textarea></label><label>Seu nome (opcional)<input type="text" name="nome"></label><p class="help" style="margin:0">Ao enviar, abre o WhatsApp com a mensagem pronta. É só apertar enviar lá.</p>',{
+    submit:'Abrir WhatsApp',noFocus:true,
+    onSubmit:function(f){
+      var t=f.msg.value.trim();if(!t)return 'Escreva o que você gostaria de ver ou mudar.';
+      var n=f.nome.value.trim();
+      if(!WA_NUM){toast('O WhatsApp de contato ainda não foi configurado.');return true}
+      window.open(waLink('Sugestão para o painel'+(n?' ('+n+')':'')+': '+t),'_blank','noopener');return true;
+    }
+  });
+}
 /* ---------- cartões reaproveitados ---------- */
 function origemCard(vs,sub){
-  var h='<section class="card"><h2>De onde vêm as vendas <small>'+esc(sub)+'</small></h2>';
-  if(!vs.length)return h+'<p class="empty">Sem vendas neste período.</p></section>';
+  vs=vs.filter(function(v){return v.canal==='tiktok'});
+  var h='<section class="card"><h2>De onde vêm as vendas <small>TikTok Shop · '+esc(sub)+'</small></h2>';
+  if(!vs.length)return h+'<p class="empty">Sem vendas do TikTok Shop neste período.</p></section>';
   var rows=origemRows(vs),tot=sum(vs,bruto);
   if(!rows.some(function(r){return r.nome!=='Sem origem'}))return h+'<p class="empty">Ainda não sei a origem dessas vendas. Importe o relatório do TikTok Shop em Configurações (pode reimportar os meses que já subiu) e aparece aqui: vídeo, live ou cartão do produto.</p></section>';
   h+='<div class="tbl"><table class="num"><thead><tr><th>Origem</th><th>Pedidos</th><th>Faturamento</th><th>Lucro</th></tr></thead><tbody>'+rows.map(function(r){
     var c=ORIG_COR[r.nome]!==undefined?ORIG_COR[r.nome]:6;
     return '<tr><td>'+dot(c)+esc(r.nome)+'</td><td>'+NUM.format(r.n)+'</td><td>'+money(r.f)+' <small>'+Math.round(tot>0?r.f/tot*100:0)+'%</small></td><td class="'+(r.l<0?'neg':'')+'"><b>'+signed(r.l)+'</b></td></tr>';
-  }).join('')+'</tbody></table></div><p class="help" style="margin:8px 0 0">Lucro depois de taxas, frete e custo do produto. Mostra o que está funcionando na plataforma.</p></section>';
+  }).join('')+'</tbody></table></div><p class="help" style="margin:8px 0 0">Só vendas do TikTok Shop. Lucro depois de taxas, frete e custo do produto. Mostra o que está funcionando na plataforma.</p></section>';
   return h;
 }
 function taxasCard(vs,sub){
+  vs=vs.filter(function(v){return v.canal==='tiktok'});
   var r=taxaRows(vs),tot=sum(r,function(x){return x.v}),fat=sum(vs,bruto),mx=Math.max.apply(null,r.map(function(x){return x.v}).concat([0]));
-  return '<section class="card"><h2>Para onde vão as taxas <small>'+money(tot)+' · '+esc(sub)+'</small></h2>'+(r.length?barRows(r,mx,true)+(fat>0?'<p class="help" style="margin:8px 0 0">As taxas levaram '+(tot/fat*100).toFixed(1).replace('.',',')+'% do que você vendeu.</p>':''):'<p class="empty">Sem taxas neste período.</p>')+'</section>';
+  return '<section class="card"><h2>Para onde vão as taxas <small>TikTok Shop · '+money(tot)+' · '+esc(sub)+'</small></h2>'+(r.length?barRows(r,mx,true)+(fat>0?'<p class="help" style="margin:8px 0 0">As taxas do TikTok levaram '+(tot/fat*100).toFixed(1).replace('.',',')+'% do que você vendeu.</p>':''):'<p class="empty">Sem vendas do TikTok Shop neste período.</p>')+'</section>';
 }
 function repasseCard(){
   var pend=S.vendas.filter(function(v){return !v.recebido});
@@ -660,20 +723,21 @@ function rHist(){
   var tot={fat:sum(rows,function(r){return r.st.fat}),tf:sum(rows,function(r){return r.st.taxas+r.st.fretes}),dp:sum(rows,function(r){return r.st.pagas}),l:sum(rows,function(r){return r.st.lucro})};
   var h='<div class="toolbar"><h1 style="font-family:var(--display);font-size:2.1rem;line-height:1;margin:0">Histórico</h1></div>';
   var mc=mesesCard(rows);if(mc)h+=mc.html;
-  h+='<section class="card"><h2>Faturamento por mês <small>últimos '+months.length+' meses</small></h2><div class="legend">'+S.config.canais.map(function(c){return '<span>'+dot(c.cor)+esc(c.nome)+'</span>'}).join('')+'</div><div class="chart">'+histChart(months)+'</div></section>';
+  var inRange={};months.forEach(function(m){inRange[m]=1});
+  var vs=S.vendas.filter(function(v){return inRange[mk(v.data)]});
+  /* informações do TikTok Shop logo no topo */
+  h+='<div class="grid2">'+origemCard(vs,'no período')+taxasCard(vs,'no período')+'</div>';
   h+='<section class="card"><h2>Mês a mês <small>despesas contam só as pagas</small></h2><div class="tbl"><table class="num"><thead><tr><th>Mês</th><th>Faturamento</th><th>Taxas e fretes</th><th>Despesas</th><th>Lucro líquido</th></tr></thead><tbody>'+
     rows.map(function(r){return '<tr><td>'+esc(monthLabel(r.m))+(mc&&r.m===mc.maior?' <span class="pill ok">mais vendeu</span>':'')+(mc&&r.m===mc.menor?' <span class="pill warn">menos vendeu</span>':'')+(r.m===curMonth()?' <small>em andamento</small>':'')+'</td><td>'+money(r.st.fat)+'</td><td>'+money(r.st.taxas+r.st.fretes)+'</td><td>'+money(r.st.pagas)+'</td><td class="'+(r.st.lucro<0?'neg':'')+'"><b>'+signed(r.st.lucro)+'</b></td></tr>'}).join('')+
     '</tbody><tfoot><tr><td>Total</td><td>'+money(tot.fat)+'</td><td>'+money(tot.tf)+'</td><td>'+money(tot.dp)+'</td><td class="'+(tot.l<0?'neg':'')+'">'+signed(tot.l)+'</td></tr></tfoot></table></div></section>';
   /* análise do período todo: por canal e por produto */
-  var inRange={};months.forEach(function(m){inRange[m]=1});
-  var vs=S.vendas.filter(function(v){return inRange[mk(v.data)]});
   var canais=S.config.canais.map(function(c){return {label:c.nome,v:sum(vs.filter(function(v){return v.canal===c.id}),bruto),color:'var(--s'+c.cor+')'}});
   var maxC=Math.max.apply(null,canais.map(function(c){return c.v}).concat([0]));
   var pm={};vs.forEach(function(v){var k=v.prod||('n:'+norm(v.nome));var o=pm[k]||(pm[k]={nome:v.nome,q:0,f:0,l:0});o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
   var top=Object.keys(pm).map(function(k){return pm[k]}).sort(function(a,b){return b.f-a.f}).slice(0,10);
   h+='<div class="grid2"><section class="card"><h2>Por canal no período <small>'+money(tot.fat)+'</small></h2>'+(tot.fat>0?barRows(canais,maxC,true):'<p class="empty">Sem vendas no período.</p>')+'</section>'+
     '<section class="card"><h2>Produtos que mais faturaram <small>no período</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
-  h+='<div class="grid2">'+origemCard(vs,'no período')+taxasCard(vs,'no período')+'</div>';
+  h+='<section class="card"><h2>Faturamento por mês <small>últimos '+months.length+' meses</small></h2><div class="legend">'+S.config.canais.map(function(c){return '<span>'+dot(c.cor)+esc(c.nome)+'</span>'}).join('')+'</div><div class="chart">'+histChart(months)+'</div></section>';
   return h;
 }
 
@@ -700,7 +764,7 @@ function render(){
   document.querySelectorAll('#tabs button').forEach(function(b){b.setAttribute('aria-current',b.dataset.tab===V.tab?'page':'false')});
   $('#cfgBtn').setAttribute('aria-current',V.tab==='config'?'page':'false');
   var fn={resumo:rResumo,vendas:rVendas,estoque:rEstoque,despesas:rDespesas,hist:rHist,config:rConfig}[V.tab];
-  $('#main').innerHTML=exBanner()+fn();
+  $('#main').innerHTML=(DEMO?demoBar():'')+exBanner()+fn();
 }
 
 /* ---------- folha de formulário ---------- */
@@ -1060,6 +1124,8 @@ var act={
   canalF:function(d){V.canal=d.id;render()},despF:function(d){V.despF=d.f;render()},
   estF:function(){V.soBaixo=!V.soBaixo;render()},
   delMov:function(d,b){arm(b,function(){var m=S.movs.filter(function(x){return x.id===d.id})[0];if(!m)return;S.movs=S.movs.filter(function(x){return x!==m});touch('movs',mk(m.data));commit()})},
+  sugerir:function(){sugSheet()},
+  quero:function(){if(!WA_NUM){toast('O WhatsApp de contato ainda não foi configurado.');return}window.open(waLink('Oi! Vi o painel de vendas e estoque e quero para a minha loja.'),'_blank','noopener')},
   hideHint:function(){S.config.hintTaxa=false;touch('main');commit()},
   addCanal:function(){
     var usedC={};S.config.canais.forEach(function(c){usedC[c.cor]=1});var cor=7;for(var i=0;i<8;i++)if(!usedC[i]){cor=i;break}
@@ -1161,7 +1227,8 @@ document.addEventListener('pointerdown',function(e){var t=e.target.closest&&e.ta
 
 /* ---------- início ---------- */
 $('#cfgBtn').innerHTML=ic('config');
-$('#tabs').innerHTML=[['resumo','Resumo'],['vendas','Vendas'],['estoque','Estoque'],['despesas','Despesas'],['hist','Histórico']].map(function(t){return '<button type="button" data-act="tab" data-tab="'+t[0]+'">'+ic(t[0])+'<span>'+t[1]+'</span></button>'}).join('');
+$('#tabs').innerHTML=[['hist','Histórico'],['resumo','Resumo'],['vendas','Vendas'],['estoque','Estoque'],['despesas','Despesas']].map(function(t){return '<button type="button" data-act="tab" data-tab="'+t[0]+'">'+ic(t[0])+'<span>'+t[1]+'</span></button>'}).join('');
+if(DEMO){document.body.insertAdjacentHTML('beforeend','<button class="fab" type="button" data-act="sugerir">Sugerir mudança</button>');var bn=document.querySelector('.brand b');if(bn)bn.textContent='Painel da loja';var bs=document.querySelector('.brand small');if(bs)bs.textContent='Versão de teste · vendas, estoque e financeiro'}
 render();
 loadRemote();
 })();
