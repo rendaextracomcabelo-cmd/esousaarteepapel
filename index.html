@@ -352,6 +352,27 @@ function stockState(p){
 function bruto(v){return v.qtd*v.unit}
 function liquido(v){return bruto(v)-(v.taxa||0)-(v.frete||0)}
 function lucroV(v){return liquido(v)-v.qtd*(v.custoUn||0)}
+var ORIG_COR={'Vídeo':0,'Live':1,'Cartão de produto':2,'Outro':4,'Sem origem':7};
+var TXG=[['com','Comissão da plataforma',0],['serv','Taxa de serviço (SFP)',1],['fixa','Taxa fixa por item',2],['afil','Afiliados e criadores',3],['ads','Anúncios (GMV Max)',4],['imp','Impostos (ICMS)',5],['out','Outras / sem detalhe',7]];
+function origemNorm(v){
+  var t=v;
+  if(typeof t==='string'&&/^\s*\[/.test(t)){try{var a=JSON.parse(t);t=a&&a.length?a[0]:''}catch(e){t=t.replace(/[\[\]"]/g,'').split(',')[0]}}
+  t=String(t==null?'':t).trim();if(!t)return '';
+  var n=norm(t);
+  if(/video/.test(n))return 'Vídeo';
+  if(/live/.test(n))return 'Live';
+  if(/product card|cartao|vitrine|card/.test(n))return 'Cartão de produto';
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+function origemRows(vs){
+  var m={};vs.forEach(function(v){var k=v.origem||'Sem origem';var o=m[k]||(m[k]={nome:k,n:0,q:0,f:0,l:0});o.n++;o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
+  return Object.keys(m).map(function(k){return m[k]}).sort(function(a,b){return b.f-a.f});
+}
+function taxaRows(vs){
+  var t={};TXG.forEach(function(g){t[g[0]]=0});
+  vs.forEach(function(v){var s=0;if(v.tx){TXG.forEach(function(g){if(g[0]!=='out'){var x=v.tx[g[0]]||0;t[g[0]]+=x;s+=x}})}t.out+=(v.taxa||0)-s});
+  return TXG.map(function(g){return {label:g[1],v:Math.round(t[g[0]]*100)/100,color:'var(--s'+g[2]+')'}}).filter(function(r){return r.v>0.004});
+}
 function stats(m){
   var vs=S.vendas.filter(function(v){return mk(v.data)===m}),ds=S.despesas.filter(function(d){return mk(d.data)===m});
   var fat=sum(vs,bruto),taxas=sum(vs,function(v){return v.taxa||0}),fretes=sum(vs,function(v){return v.frete||0});
@@ -450,6 +471,50 @@ function arm(b,fn){
   b.dataset.t=setTimeout(function(){delete b.dataset.armed;b.textContent=b.dataset.orig;b.classList.remove('armed')},3500);
 }
 
+/* ---------- cartões reaproveitados ---------- */
+function origemCard(vs,sub){
+  var h='<section class="card"><h2>De onde vêm as vendas <small>'+esc(sub)+'</small></h2>';
+  if(!vs.length)return h+'<p class="empty">Sem vendas neste período.</p></section>';
+  var rows=origemRows(vs),tot=sum(vs,bruto);
+  if(!rows.some(function(r){return r.nome!=='Sem origem'}))return h+'<p class="empty">Ainda não sei a origem dessas vendas. Importe o relatório do TikTok Shop em Configurações (pode reimportar os meses que já subiu) e aparece aqui: vídeo, live ou cartão do produto.</p></section>';
+  h+='<div class="tbl"><table class="num"><thead><tr><th>Origem</th><th>Pedidos</th><th>Faturamento</th><th>Lucro</th></tr></thead><tbody>'+rows.map(function(r){
+    var c=ORIG_COR[r.nome]!==undefined?ORIG_COR[r.nome]:6;
+    return '<tr><td>'+dot(c)+esc(r.nome)+'</td><td>'+NUM.format(r.n)+'</td><td>'+money(r.f)+' <small>'+Math.round(tot>0?r.f/tot*100:0)+'%</small></td><td class="'+(r.l<0?'neg':'')+'"><b>'+signed(r.l)+'</b></td></tr>';
+  }).join('')+'</tbody></table></div><p class="help" style="margin:8px 0 0">Lucro depois de taxas, frete e custo do produto. Mostra o que está funcionando na plataforma.</p></section>';
+  return h;
+}
+function taxasCard(vs,sub){
+  var r=taxaRows(vs),tot=sum(r,function(x){return x.v}),fat=sum(vs,bruto),mx=Math.max.apply(null,r.map(function(x){return x.v}).concat([0]));
+  return '<section class="card"><h2>Para onde vão as taxas <small>'+money(tot)+' · '+esc(sub)+'</small></h2>'+(r.length?barRows(r,mx,true)+(fat>0?'<p class="help" style="margin:8px 0 0">As taxas levaram '+(tot/fat*100).toFixed(1).replace('.',',')+'% do que você vendeu.</p>':''):'<p class="empty">Sem taxas neste período.</p>')+'</section>';
+}
+function repasseCard(){
+  var pend=S.vendas.filter(function(v){return !v.recebido});
+  var h='<section class="card"><h2>Previsão de repasse <small>'+money(sum(pend,liquido))+' a receber</small></h2>';
+  if(!pend.length)return h+'<p class="empty">Nada pendente. Tudo o que você vendeu já foi recebido.</p></section>';
+  var g={};pend.forEach(function(v){var k=v.repasseEst||'';var o=g[k]||(g[k]={n:0,v:0});o.n++;o.v+=liquido(v)});
+  var ks=Object.keys(g).sort(function(a,b){if(!a)return 1;if(!b)return -1;return a<b?-1:1}),hoje=todayStr();
+  h+='<ul class="list">'+ks.slice(0,8).map(function(k){var o=g[k];
+    return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+(k?fmtDay(k)+'/'+k.slice(0,4):'Sem data prevista')+'<span class="meta"><span>'+o.n+(o.n===1?' venda':' vendas')+'</span>'+(k&&k<hoje?'<span class="pill warn">passou da data</span>':'')+'</span></span><span class="am">'+money(o.v)+'</span></li>';
+  }).join('')+'</ul>'+(ks.length>8?'<p class="help" style="margin:8px 0 0">e mais '+(ks.length-8)+' datas depois dessas.</p>':'');
+  return h+'</section>';
+}
+function mesesCard(rows){
+  var cur=curMonth(),com=rows.filter(function(r){return r.st.fat>0});
+  if(!com.length)return '';
+  var fechados=com.filter(function(r){return r.m!==cur});
+  var pick=function(a,f,mx){return a.reduce(function(b,r){return (mx?f(r)>f(b):f(r)<f(b))?r:b},a[0])};
+  var maior=pick(com,function(r){return r.st.fat},true),menor=fechados.length>=2?pick(fechados,function(r){return r.st.fat},false):null;
+  var lucro=pick(com,function(r){return r.st.lucro},true),baseM=fechados.length?fechados:com;
+  var media=sum(baseM,function(r){return r.st.fat})/baseM.length;
+  var em=function(r){return r.m===cur?' (em andamento)':''};
+  var t=function(tit,val,sm,cls){return '<div class="tile"><span>'+tit+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+val+'</b><small>'+sm+'</small></div>'};
+  return {html:'<section class="tiles">'+
+    t('Mês que mais vendeu',money(maior.st.fat),esc(monthLabel(maior.m))+em(maior)+' · '+maior.st.nv+(maior.st.nv===1?' venda':' vendas'))+
+    (menor?t('Mês que menos vendeu',money(menor.st.fat),esc(monthLabel(menor.m))+' · '+menor.st.nv+(menor.st.nv===1?' venda':' vendas')):t('Mês que menos vendeu','—','precisa de pelo menos 2 meses fechados'))+
+    t('Melhor lucro',signed(lucro.st.lucro),esc(monthLabel(lucro.m))+em(lucro),lucro.st.lucro<0?'neg':'pos')+
+    t('Média por mês',money(media),fechados.length?'dos '+fechados.length+(fechados.length===1?' mês fechado':' meses fechados'):'só tem o mês em andamento')+
+  '</section>',maior:maior.m,menor:menor?menor.m:''};
+}
 /* ---------- telas ---------- */
 function rResumo(){
   var st=stats(V.mes),rec=aReceber();
@@ -481,8 +546,10 @@ function rResumo(){
     '<div><dt>Lucro nas vendas, depois do custo dos produtos</dt><dd>'+signed(st.lucroVendas)+'</dd></div>'+
   '</dl></section>'+
   '<section class="card"><h2>Faturamento por canal <small>'+money(st.fat)+'</small></h2>'+(st.fat>0?barRows(canais,maxC,true):'<p class="empty">Nenhuma venda neste mês. Quando lançar, a divisão entre TikTok Shop, Shopee, Etsy e venda local aparece aqui.</p>')+'</section></div>';
+  h+='<div class="grid2">'+origemCard(st.vs,monthLabel(V.mes))+taxasCard(st.vs,monthLabel(V.mes))+'</div>';
   h+='<div class="grid2"><section class="card"><h2>Mais vendidos no mês</h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+'</span></span><span class="am">'+signed(t.l)+'<small>lucro</small></span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas neste mês.</p>')+'</section>'+
   '<section class="card"><h2>Estoque pedindo atenção <button class="link" type="button" data-act="tab" data-tab="estoque">Ver estoque</button></h2>'+(alerts.length?'<ul class="list">'+alerts.map(function(a){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto auto"><span class="nm">'+esc(a.p.nome)+'</span><span class="pill '+a.s.c+'">'+a.s.t+'</span><span class="am">'+NUM.format(a.s.q)+' un</span></li>'}).join('')+'</ul>':'<p class="empty">Nenhum produto zerado ou abaixo do mínimo.</p>')+'</section></div>';
+  h+=repasseCard();
   return h;
 }
 
@@ -497,7 +564,7 @@ function rVendas(){
   if(!list.length)h+='<p class="empty">Nenhuma venda neste filtro. Use “+ Nova venda” para lançar.</p>';
   else h+='<ul class="list">'+list.map(function(v){
     var c=canalInfo(v.canal);
-    return '<li class="row" tabindex="0" role="button" data-act="editVenda" data-id="'+v.id+'"><span class="dt">'+fmtDay(v.data)+'</span><span class="nm">'+esc(v.nome)+'<span class="meta"><span>'+dot(c.cor)+esc(c.nome)+'</span><span>'+NUM.format(v.qtd)+' × '+money(v.unit)+'</span><button type="button" class="pill '+(v.recebido?'ok':'warn')+'" data-act="togRec" data-id="'+v.id+'" aria-label="'+(v.recebido?'Marcar como a receber':'Marcar como recebido')+'">'+(v.recebido?'✓ Recebido':'A receber')+'</button></span></span><span class="am">'+money(bruto(v))+'<small>líquido '+money(liquido(v))+'</small></span></li>';
+    return '<li class="row" tabindex="0" role="button" data-act="editVenda" data-id="'+v.id+'"><span class="dt">'+fmtDay(v.data)+'</span><span class="nm">'+esc(v.nome)+'<span class="meta"><span>'+dot(c.cor)+esc(c.nome)+'</span><span>'+NUM.format(v.qtd)+' × '+money(v.unit)+'</span>'+(v.origem?'<span>'+esc(v.origem)+'</span>':'')+'<button type="button" class="pill '+(v.recebido?'ok':'warn')+'" data-act="togRec" data-id="'+v.id+'" aria-label="'+(v.recebido?'Marcar como a receber':'Marcar como recebido')+'">'+(v.recebido?'✓ Recebido':'A receber')+'</button>'+(!v.recebido&&v.repasseEst?'<span>repasse '+fmtDay(v.repasseEst)+'</span>':'')+'</span></span><span class="am">'+money(bruto(v))+'<small>líquido '+money(liquido(v))+'</small></span></li>';
   }).join('')+'</ul>';
   return h+'</section>';
 }
@@ -592,9 +659,10 @@ function rHist(){
   var months=histMonths(),rows=months.slice().reverse().map(function(m){return {m:m,st:stats(m)}});
   var tot={fat:sum(rows,function(r){return r.st.fat}),tf:sum(rows,function(r){return r.st.taxas+r.st.fretes}),dp:sum(rows,function(r){return r.st.pagas}),l:sum(rows,function(r){return r.st.lucro})};
   var h='<div class="toolbar"><h1 style="font-family:var(--display);font-size:2.1rem;line-height:1;margin:0">Histórico</h1></div>';
+  var mc=mesesCard(rows);if(mc)h+=mc.html;
   h+='<section class="card"><h2>Faturamento por mês <small>últimos '+months.length+' meses</small></h2><div class="legend">'+S.config.canais.map(function(c){return '<span>'+dot(c.cor)+esc(c.nome)+'</span>'}).join('')+'</div><div class="chart">'+histChart(months)+'</div></section>';
   h+='<section class="card"><h2>Mês a mês <small>despesas contam só as pagas</small></h2><div class="tbl"><table class="num"><thead><tr><th>Mês</th><th>Faturamento</th><th>Taxas e fretes</th><th>Despesas</th><th>Lucro líquido</th></tr></thead><tbody>'+
-    rows.map(function(r){return '<tr><td>'+esc(monthLabel(r.m))+'</td><td>'+money(r.st.fat)+'</td><td>'+money(r.st.taxas+r.st.fretes)+'</td><td>'+money(r.st.pagas)+'</td><td class="'+(r.st.lucro<0?'neg':'')+'"><b>'+signed(r.st.lucro)+'</b></td></tr>'}).join('')+
+    rows.map(function(r){return '<tr><td>'+esc(monthLabel(r.m))+(mc&&r.m===mc.maior?' <span class="pill ok">mais vendeu</span>':'')+(mc&&r.m===mc.menor?' <span class="pill warn">menos vendeu</span>':'')+(r.m===curMonth()?' <small>em andamento</small>':'')+'</td><td>'+money(r.st.fat)+'</td><td>'+money(r.st.taxas+r.st.fretes)+'</td><td>'+money(r.st.pagas)+'</td><td class="'+(r.st.lucro<0?'neg':'')+'"><b>'+signed(r.st.lucro)+'</b></td></tr>'}).join('')+
     '</tbody><tfoot><tr><td>Total</td><td>'+money(tot.fat)+'</td><td>'+money(tot.tf)+'</td><td>'+money(tot.dp)+'</td><td class="'+(tot.l<0?'neg':'')+'">'+signed(tot.l)+'</td></tr></tfoot></table></div></section>';
   /* análise do período todo: por canal e por produto */
   var inRange={};months.forEach(function(m){inRange[m]=1});
@@ -605,6 +673,7 @@ function rHist(){
   var top=Object.keys(pm).map(function(k){return pm[k]}).sort(function(a,b){return b.f-a.f}).slice(0,10);
   h+='<div class="grid2"><section class="card"><h2>Por canal no período <small>'+money(tot.fat)+'</small></h2>'+(tot.fat>0?barRows(canais,maxC,true):'<p class="empty">Sem vendas no período.</p>')+'</section>'+
     '<section class="card"><h2>Produtos que mais faturaram <small>no período</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
+  h+='<div class="grid2">'+origemCard(vs,'no período')+taxasCard(vs,'no período')+'</div>';
   return h;
 }
 
@@ -657,6 +726,7 @@ function vendaSheet(id){
     '<label id="descWrap">Descrição do item<input type="text" name="desc" value="'+(v&&!v.prod?esc(v.nome):'')+'"></label>'+
     '<div class="row2"><label>Quantidade<input type="text" inputmode="numeric" name="qtd" value="'+(v?v.qtd:1)+'"></label><label>Preço unitário (R$)<input type="text" inputmode="decimal" name="unit" value="'+(v?fmtIn(v.unit):'')+'"></label></div>'+
     '<div class="row2"><label>Taxa da plataforma (R$)<input type="text" inputmode="decimal" name="taxa" value="'+(v?fmtIn(v.taxa):'0,00')+'"></label><label>Frete pago por você (R$)<input type="text" inputmode="decimal" name="frete" value="'+(v?fmtIn(v.frete):'0,00')+'"></label></div>'+
+    '<label>De onde veio a venda (opcional)<select name="origem"><option value="">Não sei / não se aplica</option>'+opts(['Vídeo','Live','Cartão de produto','Outro'].map(function(x){return [x,x]}),v?v.origem:'')+'</select></label>'+
     '<label class="check"><input type="checkbox" name="recebido"'+((v?v.recebido:c0==='local')?' checked':'')+'> Já recebi o dinheiro desta venda</label>'+
     '<label>Observação (opcional)<input type="text" name="obs" value="'+esc(v?v.obs:'')+'"></label><div class="preview" id="vPrev"></div>';
   var manual=!!v;
@@ -688,10 +758,10 @@ function vendaSheet(id){
       var p=prodById(f.prod.value),nome=p?p.nome:f.desc.value.trim();
       if(!nome)return 'Escolha um produto ou descreva o item vendido.';
       var unit=parseNum(f.unit.value);if(!(unit>0))return 'Informe o preço unitário.';
-      var obj={data:f.data.value,canal:f.canal.value,prod:p?p.id:'',nome:nome,qtd:Math.max(1,Math.floor(parseNum(f.qtd.value))||1),unit:unit,taxa:parseNum(f.taxa.value),frete:parseNum(f.frete.value),recebido:f.recebido.checked,obs:f.obs.value.trim()};
+      var obj={data:f.data.value,canal:f.canal.value,prod:p?p.id:'',nome:nome,qtd:Math.max(1,Math.floor(parseNum(f.qtd.value))||1),unit:unit,taxa:parseNum(f.taxa.value),frete:parseNum(f.frete.value),recebido:f.recebido.checked,obs:f.obs.value.trim(),origem:f.origem.value};
       if(v){
         var old=mk(v.data);obj.custoUn=(p&&v.prod===p.id)?v.custoUn:(p?p.custo:0);
-        Object.assign(v,obj);delete v.ex;touch('vendas',old);touch('vendas',mk(v.data));
+        if(v.tx&&Math.abs((v.taxa||0)-obj.taxa)>0.005)delete v.tx;Object.assign(v,obj);if(v.recebido)delete v.repasseEst;delete v.ex;touch('vendas',old);touch('vendas',mk(v.data));
       }else{
         obj.id=uid();obj.custoUn=p?p.custo:0;S.vendas.push(obj);touch('vendas',mk(obj.data));
       }
@@ -836,8 +906,11 @@ var ALI={
   settled:['order settled date','data de liquidacao','data de repasse'],
   status:['order status','status do pedido','status'],
   margem:['net order margin','margem liquida do pedido'],
-  amostra:['sample order type','tipo de pedido de amostra']
+  amostra:['sample order type','tipo de pedido de amostra'],
+  origem:['order source','origem do pedido','origem'],
+  estrep:['est. settlement time','previsao de repasse','previsao de liquidacao']
 };
+var TX_GRUPOS={com:['platform commission fee'],serv:['sfp service fee'],fixa:['fee per item sold'],afil:['commission paid to creators','commission paid to affiliate partners','shop ads commission paid to creators','shop ads commission paid to affiliate partners'],ads:['gmv max ad fee'],imp:['icms difal','icms penalty']};
 /* relatório "Profit & Loss" do TikTok Shop: várias colunas de taxa e de frete que somam o custo do pedido */
 var TAXAS_MULTI=['platform commission fee','commission paid to creators','commission paid to affiliate partners','sfp service fee','shop ads commission paid to creators','shop ads commission paid to affiliate partners','gmv max ad fee','fee per item sold','icms difal','icms penalty'];
 var FRETE_MULTI=['shipping cost covered by tiktok shop','customer shipping fee','refunded customer shipping fee','shipping cost for returns','shipping cost','return shipping fee reimbursement'];
@@ -869,7 +942,8 @@ function mapVendas(rows){
   var H=rows[best].map(norm),raw=rows[best].map(function(x){return String(x==null?'':x)}),c={};
   Object.keys(ALI).forEach(function(key){c[key]=findCol(H,ALI[key])});
   if(c.data<0){for(i=0;i<H.length;i++)if(/(^|\s)(data|date)(\s|$)/.test(H[i])){c.data=i;break}}
-  var tx=[],fr=[];
+  var tx=[],fr=[],gcols={};
+  Object.keys(TX_GRUPOS).forEach(function(g){gcols[g]=[];H.forEach(function(h,k){if(TX_GRUPOS[g].indexOf(h)>=0)gcols[g].push(k)})});
   H.forEach(function(h,k){if(TAXAS_MULTI.indexOf(h)>=0)tx.push(k);if(FRETE_MULTI.indexOf(h)>=0)fr.push(k)});
   if(c.data<0)return {err:'Não achei a coluna de data.'};
   if(c.unit<0&&c.total<0)return {err:'Não achei a coluna de valor (preço ou total).'};
@@ -888,7 +962,8 @@ function mapVendas(rows){
     var nome=c.item>=0?(c.sku>=0?[shortName(r[c.item]),String(r[c.sku]).trim()].filter(Boolean).join(' · '):String(r[c.item]).trim()):(c.sku>=0?String(r[c.sku]).trim():'Venda importada');
     var taxa=tx.length?Math.max(0,-soma(r,tx)):(c.taxa>=0?Math.abs(parseNum(r[c.taxa])):null);
     var frete=fr.length?-soma(r,fr):(c.frete>=0?Math.abs(parseNum(r[c.frete])):0);
-    items.push({data:d,nome:nome||'Venda importada',qtd:q,unit:unit,taxa:taxa,frete:Math.round(frete*100)/100,pedido:c.pedido>=0?String(r[c.pedido]).trim():'',canalTxt:c.canal>=0?norm(r[c.canal]):'',rec:c.settled>=0?!!String(r[c.settled]).trim():null});
+    var det=null;if(tx.length){det={};Object.keys(gcols).forEach(function(g){var x=Math.round(-soma(r,gcols[g])*100)/100;if(Math.abs(x)>0.004)det[g]=x})}
+    items.push({tx:det,origem:c.origem>=0?origemNorm(r[c.origem]):'',repasseEst:c.estrep>=0?parseDate(r[c.estrep]):'',data:d,nome:nome||'Venda importada',qtd:q,unit:unit,taxa:taxa,frete:Math.round(frete*100)/100,pedido:c.pedido>=0?String(r[c.pedido]).trim():'',canalTxt:c.canal>=0?norm(r[c.canal]):'',rec:c.settled>=0?!!String(r[c.settled]).trim():null});
   }
   var names={};Object.keys(c).forEach(function(k){if(c[k]>=0)names[k]=raw[c[k]]});
   if(tx.length)names.taxa='soma de '+tx.length+' colunas de taxas';
@@ -912,7 +987,7 @@ function importVendasSheet(m){
   if(!its.length){toast('Não encontrei vendas nessa planilha.');return}
   var ds=its.map(function(x){return x.data}).sort(),tot=sum(its,function(x){return x.qtd*x.unit});
   var liq=sum(its,function(x){return x.qtd*x.unit-(x.taxa||0)-(x.frete||0)});
-  var colNames={data:'Data',item:'Produto',sku:'Variação',qtd:'Quantidade',unit:'Preço unitário',total:'Valor',taxa:'Taxas',frete:'Frete',pedido:'Pedido',canal:'Canal',settled:'Repasse',status:'Status',margem:'Resultado',amostra:'Amostra'};
+  var colNames={data:'Data',item:'Produto',sku:'Variação',qtd:'Quantidade',unit:'Preço unitário',total:'Valor',taxa:'Taxas',frete:'Frete',pedido:'Pedido',canal:'Canal',settled:'Repasse',status:'Status',margem:'Resultado',amostra:'Amostra',origem:'Origem',estrep:'Previsão de repasse'};
   var usadas=Object.keys(m.names).map(function(k){return colNames[k]+' ← '+(/^soma/.test(m.names[k])?m.names[k]:'“'+esc(m.names[k])+'”')}).join(' · ');
   var am=m.amostras||[],amTot=sum(am,function(x){return x.custo});
   var amA=am.filter(function(x){return x.tipo==='amostra'}),amD=am.filter(function(x){return x.tipo==='devolucao'}),amO=am.filter(function(x){return x.tipo==='outro'});
@@ -939,7 +1014,8 @@ function importVendasSheet(m){
         if(x.canalTxt){S.config.canais.forEach(function(c){if(norm(c.nome)===x.canalTxt||c.id===x.canalTxt||x.canalTxt.indexOf(norm(c.nome))>=0)canal=c.id})}
         var p=byName[norm(x.nome)]||null,b=x.qtd*x.unit,ci=canalInfo(canal);
         var v={id:uid(),data:x.data,canal:canal,prod:p?p.id:'',nome:x.nome||'Venda importada',qtd:x.qtd,unit:x.unit,taxa:x.taxa!==null?x.taxa:Math.round(b*(ci.taxa||0)+x.qtd*(ci.taxaFixa||0)*100)/100,frete:x.frete||0,recebido:x.rec!==null?x.rec:f.rec.checked,obs:'importada',custoUn:p?p.custo:0,pedido:x.pedido};
-        if(f.dup.checked){var k=vendaKey(v),old=seen[k];if(old){skipped++;var ch=false;if(x.rec!==null&&old.recebido!==x.rec){old.recebido=x.rec;ch=true}if(x.taxa!==null&&Math.abs((old.taxa||0)-x.taxa)>0.004){old.taxa=x.taxa;ch=true}if(x.frete!==null&&x.frete!==undefined&&Math.abs((old.frete||0)-x.frete)>0.004){old.frete=x.frete;ch=true}if(ch){upd++;months[mk(old.data)]=1}return}seen[k]=v}
+        if(x.origem)v.origem=x.origem;if(x.tx)v.tx=x.tx;if(!v.recebido&&x.repasseEst)v.repasseEst=x.repasseEst;
+        if(f.dup.checked){var k=vendaKey(v),old=seen[k];if(old){skipped++;var ch=false;if(x.rec!==null&&old.recebido!==x.rec){old.recebido=x.rec;ch=true}if(x.taxa!==null&&Math.abs((old.taxa||0)-x.taxa)>0.004){old.taxa=x.taxa;ch=true}if(x.frete!==null&&x.frete!==undefined&&Math.abs((old.frete||0)-x.frete)>0.004){old.frete=x.frete;ch=true}if(x.origem&&old.origem!==x.origem){old.origem=x.origem;ch=true}if(x.tx&&JSON.stringify(old.tx||null)!==JSON.stringify(x.tx)){old.tx=x.tx;ch=true}var rp=(x.rec===true)?'':(x.repasseEst||'');if(x.rec!==null&&(old.repasseEst||'')!==rp){if(rp)old.repasseEst=rp;else delete old.repasseEst;ch=true}if(ch){upd++;months[mk(old.data)]=1}return}seen[k]=v}
         S.vendas.push(v);n++;months[mk(v.data)]=1;if(v.data>last)last=v.data;
       });
       var nd=0;
@@ -994,7 +1070,7 @@ var act={
   exportBackup:function(){saveFile('backup-e-sousa-'+todayStr()+'.json',JSON.stringify(S,null,1))},
   exportCsv:function(d){
     var rows;
-    if(d.k==='vendas'){rows=[['Data','Canal','Item','Qtd','Preço unit.','Total','Taxa','Frete','Recebido','Custo unit.','Lucro']].concat(S.vendas.slice().sort(function(a,b){return a.data<b.data?-1:1}).map(function(v){return [v.data,canalInfo(v.canal).nome,v.nome,v.qtd,fmtIn(v.unit),fmtIn(bruto(v)),fmtIn(v.taxa),fmtIn(v.frete),v.recebido?'sim':'não',fmtIn(v.custoUn),fmtIn(lucroV(v))]}))}
+    if(d.k==='vendas'){rows=[['Data','Canal','Item','Qtd','Preço unit.','Total','Taxa','Frete','Recebido','Origem','Repasse previsto','Custo unit.','Lucro']].concat(S.vendas.slice().sort(function(a,b){return a.data<b.data?-1:1}).map(function(v){return [v.data,canalInfo(v.canal).nome,v.nome,v.qtd,fmtIn(v.unit),fmtIn(bruto(v)),fmtIn(v.taxa),fmtIn(v.frete),v.recebido?'sim':'não',v.origem||'',v.recebido?'':(v.repasseEst||''),fmtIn(v.custoUn),fmtIn(lucroV(v))]}))}
     else if(d.k==='despesas'){rows=[['Data','Descrição','Categoria','Valor','Pago','Canal']].concat(S.despesas.slice().sort(function(a,b){return a.data<b.data?-1:1}).map(function(x){return [x.data,x.desc,x.cat,fmtIn(x.valor),x.pago?'sim':'não',x.canal?canalInfo(x.canal).nome:'']}))}
     else{rows=[['Produto','Código','Custo','Preço','Controla estoque','Estoque atual','Mínimo']].concat(S.produtos.map(function(p){var q=estoque(p);return [p.nome,p.sku,fmtIn(p.custo),fmtIn(p.preco),p.controla?'sim':'não',q===null?'':q,p.min||0]}))}
     saveFile(d.k+'-e-sousa.csv',toCsv(rows));

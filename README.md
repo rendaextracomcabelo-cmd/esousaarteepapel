@@ -8,7 +8,8 @@ Painel de vendas, estoque e financeiro da loja E Sousa Arte & Papel, feito para 
 - **Vendas**: lançamento por canal, taxa da plataforma, frete, "a receber" e "recebido". Cada venda desconta do estoque sozinha.
 - **Estoque**: custo, preço, margem, quantidade, alerta de reposição, entradas de compra e ajuste de contagem. Arquivos digitais (Etsy) ficam sem controle de estoque.
 - **Despesas**: categorias, pagas e a pagar, com gráfico de onde o dinheiro vai.
-- **Histórico**: faturamento mês a mês por canal, tabela com lucro e ranking de produtos e canais no período.
+- **Histórico**: mês que mais e que menos vendeu, melhor lucro, média por mês, faturamento mês a mês por canal, tabela com lucro e ranking de produtos e canais no período.
+- **Origem das vendas** (vídeo, live, cartão do produto), **taxas separadas** (comissão, serviço, taxa fixa, afiliados, anúncios) e **previsão de repasse**, lidas do relatório do TikTok Shop.
 - **Configurações**: taxa de cada canal, categorias, backup, exportação em CSV e importação de produtos e de vendas de meses anteriores (CSV ou Excel).
 
 ## Importar meses anteriores
