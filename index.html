@@ -374,7 +374,7 @@ function normalize(s){
 var S;
 try{var raw=localStorage.getItem(LS);S=raw?normalize(JSON.parse(raw)):null}catch(e){S=null}
 if(!S||(!S.produtos.length&&!S.vendas.length&&!S.despesas.length&&!S.movs.length))S=seed();
-var V={tab:'hist',mes:curMonth(),canal:'all',despF:'all',soBaixo:false,busca:''};
+var V={tab:'hist',hm:'all',mes:curMonth(),canal:'all',despF:'all',soBaixo:false,busca:''};
 
 /* ---------- cálculos ---------- */
 function canalInfo(id){for(var i=0;i<S.config.canais.length;i++)if(S.config.canais[i].id===id)return S.config.canais[i];return {id:id,nome:'Outro',taxa:0,cor:7}}
@@ -726,17 +726,25 @@ function rHist(){
   var inRange={};months.forEach(function(m){inRange[m]=1});
   var vs=S.vendas.filter(function(v){return inRange[mk(v.data)]});
   /* informações do TikTok Shop logo no topo */
-  h+='<div class="grid2">'+origemCard(vs,'no período')+taxasCard(vs,'no período')+'</div>';
+  var vm={};vs.forEach(function(v){vm[mk(v.data)]=1});
+  var mesesOpc=Object.keys(vm).sort().reverse();
+  if(V.hm!=='all'&&V.hm!=='u3'&&!vm[V.hm])V.hm='all';
+  var u3={};[0,1,2].forEach(function(n){u3[shiftMonth(curMonth(),-n)]=1});
+  var vf=V.hm==='all'?vs:V.hm==='u3'?vs.filter(function(v){return u3[mk(v.data)]}):vs.filter(function(v){return mk(v.data)===V.hm});
+  var per=V.hm==='all'?'todos os meses':V.hm==='u3'?'últimos 3 meses':monthLabel(V.hm);
+  var fatF=sum(vf,bruto);
+  h+='<div class="filter"><label for="histMes">Ver os cartões abaixo de</label><select id="histMes" data-chg="histMes"><option value="all"'+(V.hm==='all'?' selected':'')+'>Todos os meses</option><option value="u3"'+(V.hm==='u3'?' selected':'')+'>Últimos 3 meses</option>'+mesesOpc.map(function(m){return '<option value="'+m+'"'+(V.hm===m?' selected':'')+'>'+esc(monthLabel(m))+'</option>'}).join('')+'</select></div>';
+  h+='<div class="grid2">'+origemCard(vf,per)+taxasCard(vf,per)+'</div>';
   h+='<section class="card"><h2>Mês a mês <small>despesas contam só as pagas</small></h2><div class="tbl"><table class="num"><thead><tr><th>Mês</th><th>Faturamento</th><th>Taxas e fretes</th><th>Despesas</th><th>Lucro líquido</th></tr></thead><tbody>'+
     rows.map(function(r){return '<tr><td>'+esc(monthLabel(r.m))+(mc&&r.m===mc.maior?' <span class="pill ok">mais vendeu</span>':'')+(mc&&r.m===mc.menor?' <span class="pill warn">menos vendeu</span>':'')+(r.m===curMonth()?' <small>em andamento</small>':'')+'</td><td>'+money(r.st.fat)+'</td><td>'+money(r.st.taxas+r.st.fretes)+'</td><td>'+money(r.st.pagas)+'</td><td class="'+(r.st.lucro<0?'neg':'')+'"><b>'+signed(r.st.lucro)+'</b></td></tr>'}).join('')+
     '</tbody><tfoot><tr><td>Total</td><td>'+money(tot.fat)+'</td><td>'+money(tot.tf)+'</td><td>'+money(tot.dp)+'</td><td class="'+(tot.l<0?'neg':'')+'">'+signed(tot.l)+'</td></tr></tfoot></table></div></section>';
   /* análise do período todo: por canal e por produto */
-  var canais=S.config.canais.map(function(c){return {label:c.nome,v:sum(vs.filter(function(v){return v.canal===c.id}),bruto),color:'var(--s'+c.cor+')'}});
+  var canais=S.config.canais.map(function(c){return {label:c.nome,v:sum(vf.filter(function(v){return v.canal===c.id}),bruto),color:'var(--s'+c.cor+')'}});
   var maxC=Math.max.apply(null,canais.map(function(c){return c.v}).concat([0]));
-  var pm={};vs.forEach(function(v){var k=v.prod||('n:'+norm(v.nome));var o=pm[k]||(pm[k]={nome:v.nome,q:0,f:0,l:0});o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
+  var pm={};vf.forEach(function(v){var k=v.prod||('n:'+norm(v.nome));var o=pm[k]||(pm[k]={nome:v.nome,q:0,f:0,l:0});o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
   var top=Object.keys(pm).map(function(k){return pm[k]}).sort(function(a,b){return b.f-a.f}).slice(0,10);
-  h+='<div class="grid2"><section class="card"><h2>Por canal no período <small>'+money(tot.fat)+'</small></h2>'+(tot.fat>0?barRows(canais,maxC,true):'<p class="empty">Sem vendas no período.</p>')+'</section>'+
-    '<section class="card"><h2>Produtos que mais faturaram <small>no período</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
+  h+='<div class="grid2"><section class="card"><h2>Por canal <small>'+esc(per)+' · '+money(fatF)+'</small></h2>'+(fatF>0?barRows(canais,maxC,true):'<p class="empty">Sem vendas neste período.</p>')+'</section>'+
+    '<section class="card"><h2>Produtos que mais faturaram <small>'+esc(per)+'</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
   h+='<section class="card"><h2>Faturamento por mês <small>últimos '+months.length+' meses</small></h2><div class="legend">'+S.config.canais.map(function(c){return '<span>'+dot(c.cor)+esc(c.nome)+'</span>'}).join('')+'</div><div class="chart">'+histChart(months)+'</div></section>';
   return h;
 }
@@ -1176,6 +1184,7 @@ document.addEventListener('submit',function(e){
 });
 document.addEventListener('change',function(e){
   var t=e.target,k=t.dataset&&t.dataset.chg;if(!k)return;
+  if(k==='histMes'){V.hm=t.value;render();return}
   var c=S.config.canais.filter(function(x){return x.id===t.dataset.id})[0];if(!c)return;
   if(k==='canalNome'){c.nome=t.value.trim()||c.nome}
   if(k==='canalTaxa'){c.taxa=Math.max(0,Math.min(100,parseNum(t.value)));t.value=fmtIn(c.taxa).replace(',00','')}
