@@ -931,7 +931,7 @@ function importVendasSheet(m){
   openSheet('Importar vendas',body,{
     submit:'Importar '+its.length,noFocus:true,
     onSubmit:function(f){
-      var seen={};S.vendas.forEach(function(v){seen[vendaKey(v)]=1});
+      var seen={};S.vendas.forEach(function(v){seen[vendaKey(v)]=v});var upd=0;
       var byName={};S.produtos.forEach(function(p){byName[norm(p.nome)]=p});
       var n=0,skipped=0,months={},last='';
       its.forEach(function(x){
@@ -939,7 +939,7 @@ function importVendasSheet(m){
         if(x.canalTxt){S.config.canais.forEach(function(c){if(norm(c.nome)===x.canalTxt||c.id===x.canalTxt||x.canalTxt.indexOf(norm(c.nome))>=0)canal=c.id})}
         var p=byName[norm(x.nome)]||null,b=x.qtd*x.unit,ci=canalInfo(canal);
         var v={id:uid(),data:x.data,canal:canal,prod:p?p.id:'',nome:x.nome||'Venda importada',qtd:x.qtd,unit:x.unit,taxa:x.taxa!==null?x.taxa:Math.round(b*(ci.taxa||0))/100,frete:x.frete||0,recebido:x.rec!==null?x.rec:f.rec.checked,obs:'importada',custoUn:p?p.custo:0,pedido:x.pedido};
-        if(f.dup.checked){var k=vendaKey(v);if(seen[k]){skipped++;return}seen[k]=1}
+        if(f.dup.checked){var k=vendaKey(v),old=seen[k];if(old){skipped++;var ch=false;if(x.rec!==null&&old.recebido!==x.rec){old.recebido=x.rec;ch=true}if(x.taxa!==null&&Math.abs((old.taxa||0)-x.taxa)>0.004){old.taxa=x.taxa;ch=true}if(x.frete!==null&&x.frete!==undefined&&Math.abs((old.frete||0)-x.frete)>0.004){old.frete=x.frete;ch=true}if(ch){upd++;months[mk(old.data)]=1}return}seen[k]=v}
         S.vendas.push(v);n++;months[mk(v.data)]=1;if(v.data>last)last=v.data;
       });
       var nd=0;
@@ -954,14 +954,15 @@ function importVendasSheet(m){
             S.despesas=S.despesas.filter(function(d){return !(d.desc===velha&&d.obs==='importada')});
             if(S.despesas.length!==antes)touch('despesas',o.m);
           }
-          if(S.despesas.some(function(d){return d.desc===desc}))return;
-          S.despesas.push({id:uid(),data:o.d,desc:desc,cat:cat,valor:Math.round(o.v*100)/100,pago:true,canal:'tiktok',obs:'importada'});
+          var ja=S.despesas.filter(function(d){return d.desc===desc})[0],val=Math.round(o.v*100)/100;
+          if(ja){if(Math.abs(ja.valor-val)>0.004){ja.valor=val;if(o.d>ja.data)ja.data=o.d;touch('despesas',o.m)}return}
+          S.despesas.push({id:uid(),data:o.d,desc:desc,cat:cat,valor:val,pago:true,canal:'tiktok',obs:'importada'});
           touch('despesas',o.m);nd++;
         });
       }
       Object.keys(months).forEach(function(k){touch('vendas',k)});
       if(last){V.mes=mk(last);V.tab='hist'}
-      commit();toast(n+' vendas importadas'+(skipped?(' · '+skipped+' já existiam'):'')+(nd?(' · '+nd+(nd===1?' despesa lançada':' despesas lançadas')):'')+'.');return true;
+      commit();toast(n+' vendas importadas'+(skipped?(' · '+skipped+' já existiam'+(upd?(' ('+upd+' atualizadas)'):'')):'')+(nd?(' · '+nd+(nd===1?' despesa lançada':' despesas lançadas')):'')+'.');return true;
     }
   });
 }
@@ -1088,5 +1089,3 @@ render();
 loadRemote();
 })();
 </script>
-</body>
-</html>
