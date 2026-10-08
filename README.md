@@ -4,7 +4,7 @@ Painel de vendas, estoque e financeiro da loja E Sousa Arte & Papel, feito para 
 
 ## O que tem
 
-- **Resumo**: faturamento, lucro líquido, previsão se pagar o que está pendente, valor a receber e comparação com o mês anterior.
+- **Meses**: faturamento, lucro líquido, previsão se pagar o que está pendente, valor a receber e comparação com o mês anterior.
 - **Vendas**: lançamento por canal, taxa da plataforma, frete, "a receber" e "recebido". Cada venda desconta do estoque sozinha.
 - **Estoque**: custo, preço, margem, quantidade, alerta de reposição, entradas de compra e ajuste de contagem. Arquivos digitais (Etsy) ficam sem controle de estoque.
 - **Despesas**: categorias, pagas e a pagar, com gráfico de onde o dinheiro vai.

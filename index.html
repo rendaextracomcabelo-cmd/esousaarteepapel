@@ -1227,7 +1227,7 @@ document.addEventListener('pointerdown',function(e){var t=e.target.closest&&e.ta
 
 /* ---------- início ---------- */
 $('#cfgBtn').innerHTML=ic('config');
-$('#tabs').innerHTML=[['hist','Histórico'],['resumo','Resumo'],['vendas','Vendas'],['estoque','Estoque'],['despesas','Despesas']].map(function(t){return '<button type="button" data-act="tab" data-tab="'+t[0]+'">'+ic(t[0])+'<span>'+t[1]+'</span></button>'}).join('');
+$('#tabs').innerHTML=[['hist','Histórico'],['resumo','Meses'],['vendas','Vendas'],['estoque','Estoque'],['despesas','Despesas']].map(function(t){return '<button type="button" data-act="tab" data-tab="'+t[0]+'">'+ic(t[0])+'<span>'+t[1]+'</span></button>'}).join('');
 if(DEMO){document.body.insertAdjacentHTML('beforeend','<button class="fab" type="button" data-act="sugerir">Sugerir mudança</button>');var bn=document.querySelector('.brand b');if(bn)bn.textContent='Painel da loja';var bs=document.querySelector('.brand small');if(bs)bs.textContent='Versão de teste · vendas, estoque e financeiro'}
 render();
 loadRemote();
