@@ -294,8 +294,9 @@ function defaultConfig(){
     {id:'tiktok',nome:'TikTok Shop',taxa:0,cor:0},
     {id:'shopee',nome:'Shopee',taxa:0,cor:1},
     {id:'etsy',nome:'Etsy',taxa:0,cor:2},
-    {id:'local',nome:'Venda local',taxa:0,cor:3}
-  ],categorias:CATS.slice(),hintTaxa:true};
+    {id:'local',nome:'Venda local',taxa:0,cor:3},
+    {id:'servicos',nome:'Serviços',taxa:0,cor:4}
+  ],categorias:CATS.slice(),hintTaxa:true,servicosAdd:true};
 }
 function seedDemo(){
   var cfg=defaultConfig();cfg.hintTaxa=false;
@@ -363,12 +364,16 @@ function seed(){
   ];
   return {config:cfg,produtos:P,movs:[],vendas:vendas,despesas:despesas};
 }
+var cfgMigrou=false;
 function normalize(s){
   s=s||{};
   var c=s.config||{},d=defaultConfig();
   c.canais=(c.canais&&c.canais.length)?c.canais:d.canais;
   c.categorias=(c.categorias&&c.categorias.length)?c.categorias:d.categorias;
   if(c.hintTaxa===undefined)c.hintTaxa=true;
+  if(!c.servicos)c.servicos=[];
+  if(!c.servicosSeed){c.servicosSeed=true;if(!DEMO&&!c.servicos.length){cfgMigrou=true;c.servicos=[{id:'sv1',nome:'Venda de impressão',preco:0},{id:'sv2',nome:'Serviço de análise',preco:0},{id:'sv3',nome:'Serviço E Sousa',preco:0}]}}
+  if(!c.servicosAdd){c.servicosAdd=true;cfgMigrou=true;if(!c.canais.some(function(x){return x.id==='servicos'}))c.canais.push({id:'servicos',nome:'Serviços',taxa:0,cor:4})}
   return {config:c,produtos:s.produtos||[],movs:s.movs||[],vendas:s.vendas||[],despesas:s.despesas||[]};
 }
 var S;
@@ -485,7 +490,7 @@ async function loadRemote(){
       }
     }
     db=d;dbMode='db';dirty={};
-    if(next){S=normalize(next);try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}setStatus('saved');render()}
+    if(next){S=normalize(next);try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){}if(cfgMigrou){cfgMigrou=false;touch('main');persist()}setStatus('saved');render()}
     else{touchAll();setStatus('saving');flush()}
   }catch(e){dbMode='local';setStatus('local')}
 }
@@ -610,7 +615,7 @@ function rResumo(){
   var topMap={};st.vs.forEach(function(v){var k=v.prod||('n:'+v.nome);var o=topMap[k]||(topMap[k]={nome:v.nome,q:0,l:0});o.q+=v.qtd;o.l+=lucroV(v)});
   var top=Object.keys(topMap).map(function(k){return topMap[k]}).sort(function(a,b){return b.q-a.q}).slice(0,5);
   var alerts=S.produtos.map(function(p){return {p:p,s:stockState(p)}}).filter(function(x){return x.s.k==='zero'||x.s.k==='low'}).sort(function(a,b){return a.s.q-b.s.q}).slice(0,6);
-  var hint=S.config.hintTaxa&&S.config.canais.some(function(c){return c.id!=='local'&&!c.taxa&&!c.taxaFixa});
+  var hint=S.config.hintTaxa&&S.config.canais.some(function(c){return c.id!=='local'&&c.id!=='servicos'&&!c.taxa&&!c.taxaFixa});
   var pst=stats(shiftMonth(V.mes,-1)),cmp='';
   if(pst.fat>0){var pc=Math.round((st.fat-pst.fat)/pst.fat*100);cmp=' · '+(pc>=0?'▲ ':'▼ ')+Math.abs(pc)+'% vs mês anterior'}
   var h='<div class="toolbar">'+monthNav()+'<button class="btn" type="button" data-act="newVenda">+ Nova venda</button></div>';
@@ -769,17 +774,24 @@ function rHist(){
   var pm={};vf.forEach(function(v){var k=v.prod||('n:'+norm(v.nome));var o=pm[k]||(pm[k]={nome:v.nome,q:0,f:0,l:0});o.q+=v.qtd;o.f+=bruto(v);o.l+=lucroV(v)});
   var top=Object.keys(pm).map(function(k){return pm[k]}).sort(function(a,b){return b.f-a.f}).slice(0,10);
   h+='<div class="grid2"><section class="card"><h2>Por canal <small>'+esc(per)+' · '+money(fatF)+'</small></h2>'+(fatF>0?barRows(canais,maxC,true):'<p class="empty">Sem vendas neste período.</p>')+'</section>'+
-    '<section class="card"><h2>Produtos que mais faturaram <small>'+esc(per)+'</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
+    '<section class="card"><h2>Produtos e serviços que mais faturaram <small>'+esc(per)+'</small></h2>'+(top.length?'<ul class="list">'+top.map(function(t){return '<li class="row" style="cursor:default;grid-template-columns:minmax(0,1fr) auto"><span class="nm">'+esc(t.nome)+'<span class="meta">'+NUM.format(t.q)+(t.q===1?' unidade':' unidades')+' · lucro '+signed(t.l)+'</span></span><span class="am">'+money(t.f)+'</span></li>'}).join('')+'</ul>':'<p class="empty">Sem vendas no período.</p>')+'</section></div>';
   h+='<section class="card"><h2>Faturamento por mês <small>últimos '+months.length+' meses</small></h2><div class="legend">'+S.config.canais.map(function(c){return '<span>'+dot(c.cor)+esc(c.nome)+'</span>'}).join('')+'</div><div class="chart">'+histChart(months)+'</div></section>';
   return h;
 }
 
+function servConfigCard(){
+  var h='<section class="card"><h2>Meus serviços</h2><p class="help">Cadastre os serviços que você vende e o valor de cada um. Ao lançar uma venda no canal “Serviços”, é só escolher na lista.</p>';
+  h+=(S.config.servicos||[]).map(function(x){return '<div class="srow"><input type="text" data-chg="servNome" data-id="'+esc(x.id)+'" value="'+esc(x.nome)+'" aria-label="Nome do serviço"><label class="pct">R$<input type="text" inputmode="decimal" data-chg="servPreco" data-id="'+esc(x.id)+'" value="'+fmtIn(x.preco)+'" aria-label="Valor do serviço"></label><button class="btn ghost sm" type="button" data-act="delServ" data-id="'+esc(x.id)+'">Remover</button></div>'}).join('');
+  if(!(S.config.servicos||[]).length)h+='<p class="empty">Nenhum serviço cadastrado ainda.</p>';
+  return h+'<div style="margin-top:10px"><button class="btn ghost sm" type="button" data-act="addServ">+ Adicionar serviço</button></div></section>';
+}
 function rConfig(){
   var used={};S.vendas.forEach(function(v){used[v.canal]=1});S.despesas.forEach(function(d){if(d.canal)used[d.canal]=1});
   var h='<div class="toolbar"><h1 style="font-family:var(--display);font-size:2.1rem;line-height:1;margin:0">Configurações</h1></div>';
   h+='<section class="card"><h2>Canais de venda e taxas</h2><p class="help">A taxa é calculada sozinha ao lançar uma venda: a porcentagem sobre o valor vendido mais o valor fixo por item (a plataforma cobra os dois). Você ainda pode ajustar o valor exato do extrato. Em “Venda local”, use a taxa da maquininha, se houver.</p>'+
     S.config.canais.map(function(c){return '<div class="crow"><i class="sw" style="background:var(--s'+c.cor+')"></i><input type="text" data-chg="canalNome" data-id="'+esc(c.id)+'" value="'+esc(c.nome)+'" aria-label="Nome do canal"><label class="pct"><input type="text" inputmode="decimal" data-chg="canalTaxa" data-id="'+esc(c.id)+'" value="'+fmtIn(c.taxa).replace(',00','')+'" aria-label="Taxa de '+esc(c.nome)+' em porcentagem"> %</label><label class="pct">+ R$<input type="text" inputmode="decimal" data-chg="canalFixa" data-id="'+esc(c.id)+'" value="'+fmtIn(c.taxaFixa||0)+'" aria-label="Taxa fixa por item de '+esc(c.nome)+' em reais"></label><button class="btn ghost sm" type="button" data-act="delCanal" data-id="'+esc(c.id)+'"'+(used[c.id]?' disabled title="Já tem lançamentos neste canal"':'')+'>Remover</button></div>'}).join('')+
     '<div style="margin-top:10px"><button class="btn ghost sm" type="button" data-act="addCanal">+ Adicionar canal</button></div></section>';
+  h+=servConfigCard();
   h+='<section class="card"><h2>Categorias de despesa</h2><div class="cats">'+S.config.categorias.map(function(c,i){return '<span class="cat">'+esc(c)+'<button type="button" data-act="delCat" data-i="'+i+'" aria-label="Remover '+esc(c)+'">×</button></span>'}).join('')+'</div><form class="inline-form" data-form="cat"><input type="text" id="newCat" placeholder="Nova categoria" aria-label="Nova categoria" autocomplete="off"><button class="btn sm" type="submit">Adicionar</button></form></section>';
   h+='<section class="card"><h2>Importar e exportar</h2><p class="help">Os dados ficam salvos neste painel. Faça um backup de vez em quando e não compartilhe o link com quem não deve ver seu financeiro.</p><div class="btnrow">'+
     '<button class="btn ghost sm" type="button" data-act="exportBackup">Backup completo (.json)</button>'+
@@ -819,8 +831,9 @@ function vendaSheet(id){
   var canais=S.config.canais,c0=v?v.canal:(V.canal!=='all'?V.canal:canais[0].id);
   var body='<label>Data<input type="date" name="data" value="'+(v?v.data:todayStr())+'"></label>'+
     '<label>Canal<select name="canal">'+opts(canais.map(function(c){return [c.id,c.nome]}),c0)+'</select></label>'+
+    '<label id="servWrap"'+(c0==='servicos'?'':' hidden')+'>Serviço<select name="serv"><option value="">'+((S.config.servicos||[]).length?'Outro serviço (descrever abaixo)':'Nenhum cadastrado em Configurações · descreva abaixo')+'</option>'+opts((S.config.servicos||[]).map(function(x){return [x.id,x.nome+' · '+money(x.preco)]}),'')+'</select></label>'+
     '<label>Produto<select name="prod"><option value="">Outro item, sem controle de estoque</option>'+opts(prods.map(function(p){return [p.id,p.nome]}),v?v.prod:'')+'</select></label>'+
-    '<label id="descWrap">Descrição do item<input type="text" name="desc" value="'+(v&&!v.prod?esc(v.nome):'')+'"></label>'+
+    '<label id="descWrap">Descrição do item ou serviço<input type="text" placeholder="Ex.: criação de arte, consultoria" name="desc" value="'+(v&&!v.prod?esc(v.nome):'')+'"></label>'+
     '<div class="row2"><label>Quantidade<input type="text" inputmode="numeric" name="qtd" value="'+(v?v.qtd:1)+'"></label><label>Preço unitário (R$)<input type="text" inputmode="decimal" name="unit" value="'+(v?fmtIn(v.unit):'')+'"></label></div>'+
     '<div class="row2"><label>Taxa da plataforma (R$)<input type="text" inputmode="decimal" name="taxa" value="'+(v?fmtIn(v.taxa):'0,00')+'"></label><label>Frete pago por você (R$)<input type="text" inputmode="decimal" name="frete" value="'+(v?fmtIn(v.frete):'0,00')+'"></label></div>'+
     '<label>De onde veio a venda (opcional)<select name="origem"><option value="">Não sei / não se aplica</option>'+opts(['Vídeo','Live','Cartão de produto','Outro'].map(function(x){return [x,x]}),v?v.origem:'')+'</select></label>'+
@@ -842,11 +855,13 @@ function vendaSheet(id){
         if(p&&p.controla&&(!p.desde||f.data.value>=p.desde)){var disp=estoque(p)+((v&&v.prod===p.id&&(!p.desde||v.data>=p.desde))?v.qtd:0),rest=disp-q;if(rest<0)warn='<div class="warnline"><span>Estoque ficará negativo</span><span>'+NUM.format(rest)+' un</span></div>'}
         $('#vPrev').innerHTML='<div><span>Total da venda</span><b class="num">'+money(b)+'</b></div><div><span>Você recebe</span><b class="num">'+money(liq)+'</b></div><div><span>Lucro depois do custo do produto</span><b class="num '+(luc<0?'neg':'')+'">'+signed(luc)+'</b></div>'+warn;
         $('#descWrap').hidden=!!f.prod.value;
+        $('#servWrap').hidden=f.canal.value!=='servicos';
       }
       f.taxa.addEventListener('input',function(){manual=true});
       f.data.addEventListener('change',recalc);
+      f.serv.addEventListener('change',function(){var sv=(S.config.servicos||[]).filter(function(x){return x.id===f.serv.value})[0];if(sv){f.prod.value='';f.desc.value=sv.nome;f.unit.value=fmtIn(sv.preco);manual=false}recalc()});
       f.prod.addEventListener('change',function(){var p=prodById(f.prod.value);if(p&&p.preco>0)f.unit.value=fmtIn(p.preco);recalc()});
-      f.canal.addEventListener('change',function(){manual=false;if(!v)f.recebido.checked=(f.canal.value==='local');recalc()});
+      f.canal.addEventListener('change',function(){manual=false;if(f.canal.value==='servicos')f.prod.value='';if(!v)f.recebido.checked=(f.canal.value==='local');recalc()});
       ['qtd','unit','frete','taxa'].forEach(function(n){f[n].addEventListener('input',function(){if(n==='qtd'||n==='unit')manual=manual&&n==='taxa';recalc()})});
       if(!v){var p0=prodById(f.prod.value);if(p0&&p0.preco>0)f.unit.value=fmtIn(p0.preco)}
       recalc();
@@ -1161,6 +1176,8 @@ var act={
   delMov:function(d,b){arm(b,function(){var m=S.movs.filter(function(x){return x.id===d.id})[0];if(!m)return;S.movs=S.movs.filter(function(x){return x!==m});touch('movs',mk(m.data));commit()})},
   sugerir:function(){sugSheet()},
   quero:function(){if(!WA_NUM){toast('O WhatsApp de contato ainda não foi configurado.');return}window.open(waLink('Oi! Vi o painel de vendas e estoque e quero para a minha loja.'),'_blank','noopener')},
+  addServ:function(){S.config.servicos=S.config.servicos||[];S.config.servicos.push({id:uid(),nome:'Novo serviço',preco:0});touch('main');commit()},
+  delServ:function(d){S.config.servicos=(S.config.servicos||[]).filter(function(x){return x.id!==d.id});touch('main');commit()},
   hideHint:function(){S.config.hintTaxa=false;touch('main');commit()},
   addCanal:function(){
     var usedC={};S.config.canais.forEach(function(c){usedC[c.cor]=1});var cor=7;for(var i=0;i<8;i++)if(!usedC[i]){cor=i;break}
@@ -1212,6 +1229,11 @@ document.addEventListener('submit',function(e){
 document.addEventListener('change',function(e){
   var t=e.target,k=t.dataset&&t.dataset.chg;if(!k)return;
   if(k==='histMes'){V.hm=t.value;render();return}
+  if(k==='servNome'||k==='servPreco'){
+    var sv=(S.config.servicos||[]).filter(function(x){return x.id===t.dataset.id})[0];if(!sv)return;
+    if(k==='servNome')sv.nome=t.value.trim()||sv.nome;else{sv.preco=Math.max(0,parseNum(t.value));t.value=fmtIn(sv.preco)}
+    touch('main');persist();return;
+  }
   var c=S.config.canais.filter(function(x){return x.id===t.dataset.id})[0];if(!c)return;
   if(k==='canalNome'){c.nome=t.value.trim()||c.nome}
   if(k==='canalTaxa'){c.taxa=Math.max(0,Math.min(100,parseNum(t.value)));t.value=fmtIn(c.taxa).replace(',00','')}
