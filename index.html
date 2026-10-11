@@ -403,7 +403,7 @@ function bruto(v){return v.qtd*v.unit}
 function liquido(v){return bruto(v)-(v.taxa||0)-(v.frete||0)}
 function lucroV(v){return liquido(v)-v.qtd*(v.custoUn||0)}
 var ORIG_COR={'Vídeo':0,'Live':1,'Cartão de produto':2,'Outro':4,'Sem origem':7};
-var TXG=[['com','Comissão da plataforma',0],['serv','Taxa de serviço (SFP)',1],['fixa','Taxa fixa por item',2],['afil','Afiliados e criadores',3],['ads','Anúncios (GMV Max)',4],['imp','Impostos (ICMS)',5],['out','Outras / sem detalhe',7]];
+var TXG=[['com','Comissão da plataforma',0],['serv','Taxa de serviço',1],['fixa','Taxa fixa por item',2],['afil','Afiliados e criadores',3],['ads','Anúncios (GMV Max)',4],['imp','Impostos (ICMS)',5],['trans','Taxa de transação',6],['cup','Cupons do vendedor',4],['out','Outras / sem detalhe',7]];
 function origemNorm(v){
   var t=v;
   if(typeof t==='string'&&/^\s*\[/.test(t)){try{var a=JSON.parse(t);t=a&&a.length?a[0]:''}catch(e){t=t.replace(/[\[\]"]/g,'').split(',')[0]}}
@@ -1008,9 +1008,9 @@ function csvProdutos(text){
 var ALI={
   data:['data','date','data do pedido','data da venda','data de criacao do pedido','data de criacao','order date','order paid date','order created time','created time','sale date','data de pagamento do pedido'],
   item:['produto','item','nome do produto','nome do item','product name','titulo','title','product','descricao','nome do produto (sku)'],
-  sku:['sku name','nome do sku','variacao'],
+  sku:['sku name','nome do sku','variacao','nome da variacao'],
   qtd:['quantidade','qtd','quantity','qty','quantidade vendida','items sold'],
-  unit:['preco unitario','preco','price','unit price','preco do item','preco original','preco acordado'],
+  unit:['preco unitario','preco','price','unit price','preco do item','preco acordado','preco original'],
   total:['order earnings','total','valor total','subtotal','order amount','valor do pedido','valor da venda','total do pedido'],
   taxa:['taxa','taxas','comissao','commission','fee','taxa de comissao','taxa de servico','taxas da plataforma'],
   frete:['frete','shipping','frete pago pelo vendedor','shipping fee','taxa de envio','custo de envio'],
@@ -1061,13 +1061,27 @@ function mapVendas(rows){
   H.forEach(function(h,k){if(TAXAS_MULTI.indexOf(h)>=0)tx.push(k);if(FRETE_MULTI.indexOf(h)>=0)fr.push(k)});
   if(c.data<0)return {err:'Não achei a coluna de data.'};
   if(c.unit<0&&c.total<0)return {err:'Não achei a coluna de valor (preço ou total).'};
-  var items=[],amostras=[],cancel=0,semValor=0;
+  var items=[],amostras=[],cancel=0,semValor=0,devolv=0;
   var soma=function(r,cols){var t=0;cols.forEach(function(k){t+=parseNum(r[k])});return t};
+  /* relatório de pedidos da Shopee: as taxas e o frete vêm por pedido (repetidos em cada linha) */
+  var sh=null,num=function(r,k){return k>=0?parseNum(r[k]):0};
+  if(H.indexOf('taxa de comissao liquida')>=0&&c.pedido>=0){
+    var fc=function(p){for(var k=0;k<H.length;k++)if(H[k].indexOf(p)===0)return k;return -1};
+    sh={sub:fc('subtotal do produto'),ret:fc('returned quantity'),com:fc('taxa de comissao liquida'),serv:fc('taxa de servico liquida'),trans:fc('taxa de transacao'),cup:fc('cupom do vendedor'),est:fc('valor estimado do frete'),comp:fc('taxa de envio pagas pelo'),dsc:fc('desconto de frete aproximado'),rev:fc('taxa de envio reversa'),inst:fc('taxa de servico instantaneo'),ord:{}};
+    for(i=best+1;i<rows.length;i++){
+      var r0=rows[i],id0=String(r0[c.pedido]==null?'':r0[c.pedido]).trim();if(!id0)continue;
+      if(c.status>=0&&/cancel/.test(norm(r0[c.status])))continue;
+      var g0=sh.ord[id0]||(sh.ord[id0]={sub:0,com:0,serv:0,trans:0,cup:0,est:0,comp:0,dsc:0,rev:0,inst:0});
+      g0.sub+=num(r0,sh.sub);
+      ['com','serv','trans','cup','est','comp','dsc','rev','inst'].forEach(function(kk){g0[kk]=Math.max(g0[kk],Math.abs(num(r0,sh[kk])))});
+    }
+  }
   for(i=best+1;i<rows.length;i++){
     var r=rows[i],d=parseDate(r[c.data]);if(!d)continue;
     if(c.status>=0&&/cancel/.test(norm(r[c.status]))){cancel++;continue}
     var q=c.qtd>=0?Math.max(1,Math.floor(parseNum(r[c.qtd]))||1):1;
     var unit=c.unit>=0?parseNum(r[c.unit]):parseNum(r[c.total])/q;
+    if(sh){var rq=num(r,sh.ret);if(rq>=q){devolv++;continue}q-=rq}
     if(!(unit>0)){
       var custo=c.margem>=0?parseNum(r[c.margem]):0;
       if(custo<0)amostras.push({data:d,custo:-custo,tipo:c.amostra>=0?(String(r[c.amostra]).trim()?'amostra':'devolucao'):'outro'});else semValor++;
@@ -1077,12 +1091,23 @@ function mapVendas(rows){
     var taxa=tx.length?Math.max(0,-soma(r,tx)):(c.taxa>=0?Math.abs(parseNum(r[c.taxa])):null);
     var frete=fr.length?-soma(r,fr):(c.frete>=0?Math.abs(parseNum(r[c.frete])):0);
     var det=null;if(tx.length){det={};Object.keys(gcols).forEach(function(g){var x=Math.round(-soma(r,gcols[g])*100)/100;if(Math.abs(x)>0.004)det[g]=x})}
-    items.push({afNome:c.afnome>=0?String(r[c.afnome]).trim():'',tx:det,origem:c.origem>=0?origemNorm(r[c.origem]):'',repasseEst:c.estrep>=0?parseDate(r[c.estrep]):'',data:d,nome:nome||'Venda importada',qtd:q,unit:unit,taxa:taxa,frete:Math.round(frete*100)/100,pedido:c.pedido>=0?String(r[c.pedido]).trim():'',canalTxt:c.canal>=0?norm(r[c.canal]):'',rec:c.settled>=0?!!String(r[c.settled]).trim():null});
+    if(sh){
+      var gg=sh.ord[String(r[c.pedido]==null?'':r[c.pedido]).trim()],ls=num(r,sh.sub),sr=gg&&gg.sub>0?Math.min(1,(ls>0?ls:q*unit)/gg.sub):1;
+      if(gg){
+        var tcom=gg.com*sr,tser=gg.serv*sr,ttra=gg.trans*sr,tcup=gg.cup*sr;
+        taxa=tcom+tser+ttra+tcup;
+        frete=(Math.max(0,gg.est-gg.comp-gg.dsc)+gg.rev+gg.inst)*sr;
+        det={};if(tcom>0.004)det.com=Math.round(tcom*100)/100;if(tser>0.004)det.serv=Math.round(tser*100)/100;if(ttra>0.004)det.trans=Math.round(ttra*100)/100;if(tcup>0.004)det.cup=Math.round(tcup*100)/100;
+        taxa=Math.round(taxa*100)/100;
+      }
+    }
+    items.push({afNome:c.afnome>=0?String(r[c.afnome]).trim():'',tx:det,origem:c.origem>=0?origemNorm(r[c.origem]):'',repasseEst:c.estrep>=0?parseDate(r[c.estrep]):'',data:d,nome:nome||'Venda importada',qtd:q,unit:unit,taxa:taxa,frete:Math.round(frete*100)/100,pedido:c.pedido>=0?String(r[c.pedido]).trim():'',canalTxt:c.canal>=0?norm(r[c.canal]):'',rec:sh?(c.status>=0?norm(r[c.status])==='concluido':null):(c.settled>=0?!!String(r[c.settled]).trim():null)});
   }
   var names={};Object.keys(c).forEach(function(k){if(c[k]>=0)names[k]=raw[c[k]]});
   if(tx.length)names.taxa='soma de '+tx.length+' colunas de taxas';
   if(fr.length)names.frete='soma de '+fr.length+' colunas de frete';
-  return {items:items,names:names,amostras:amostras,cancel:cancel,semValor:semValor};
+  if(sh){names.taxa='comissão + taxa de serviço + transação + cupom do vendedor';names.frete='frete do vendedor (estimado − pago pelo comprador − desconto Shopee)'}
+  return {items:items,names:names,amostras:amostras,cancel:cancel,semValor:semValor,devolvidas:devolv,canalSug:sh?'shopee':(H.indexOf('platform commission fee')>=0?'tiktok':'')};
 }
 function readTable(file,cb){
   var name=file.name.toLowerCase(),r=new FileReader();
@@ -1112,7 +1137,8 @@ function importVendasSheet(m){
   var body='<div class="preview"><div><span>Vendas encontradas</span><b>'+its.length+'</b></div><div><span>Período</span><b>'+fmtDay(ds[0])+'/'+ds[0].slice(0,4)+' a '+fmtDay(ds[ds.length-1])+'/'+ds[ds.length-1].slice(0,4)+'</b></div><div><span>Vendido</span><b class="num">'+money(tot)+'</b></div><div><span>Você recebe, depois das taxas</span><b class="num">'+money(liq)+'</b></div></div>'+
     '<p class="help" style="margin:0">Colunas usadas: '+usadas+'</p>'+
     ((m.cancel||am.length||m.semValor)?'<p class="help" style="margin:0">Ignorei '+(m.cancel?m.cancel+' pedidos cancelados':'')+((m.cancel&&(am.length||m.semValor))?', ':'')+(amTxt.length?amTxt.join(', '):'')+(m.semValor&&am.length?', ':'')+(m.semValor?m.semValor+' linhas sem valor':'')+'.</p>':'')+
-    '<label>De qual canal são estas vendas?<select name="canal">'+opts(S.config.canais.map(function(c){return [c.id,c.nome]}),S.config.canais[0].id)+'</select></label>'+
+    (m.devolvidas?'<p class="help" style="margin:0">Ignorei '+m.devolvidas+(m.devolvidas===1?' pedido devolvido':' pedidos devolvidos')+' (reembolsados).</p>':'')+
+    '<label>De qual canal são estas vendas?<select name="canal">'+opts(S.config.canais.map(function(c){return [c.id,c.nome]}),(m.canalSug&&S.config.canais.some(function(c){return c.id===m.canalSug}))?m.canalSug:S.config.canais[0].id)+'</select></label>'+
     '<label class="check"><input type="checkbox" name="rec" checked> Já recebi o dinheiro (só vale se a planilha não informar o repasse)</label>'+
     (am.length?'<label class="check"><input type="checkbox" name="amo" checked> Lançar esses custos como despesas (uma por tipo, em cada mês)</label>':'')+
     '<label class="check"><input type="checkbox" name="dup" checked> Pular vendas que já estão no painel</label>'+
